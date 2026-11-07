@@ -3,8 +3,8 @@
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
-read-only by default: the single writing route (`POST /clients`) is disabled
-unless `api.allow_writes` is set.
+read-only by default: the two writing routes (`POST /clients`, `POST /machines`)
+are disabled unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
 plus a short change checklist at the end. Installation, configuration keys and the full
@@ -74,7 +74,8 @@ response ◄──────────────────────�
 - Each service call borrows **one** connection. `pool.session()` always rolls it back,
   so no transaction or record lock outlives a read request — together with the query
   guard that is what keeps every read read-only. `pool.write_session()` (used only by
-  `POST /clients`) commits on success and rolls back on any exception.
+  `POST /clients` and `POST /machines`) commits on success and rolls back on any
+  exception.
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
@@ -112,13 +113,27 @@ Variations:
   fetches one extra row only to set `truncated`.
 - `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
   operator or column → `400`) and `_order_clause()` for `order_by`.
-- `POST /clients` is the only trace that writes. `WritesDisabled` → `403` when
-  `api.allow_writes` is off, `InvalidRequest` → `400` for a blank or over-long name,
-  then `build_insert("KLIENT", ["NAZWA"], returning=...)` with the trimmed name as the
-  single bound parameter, executed inside `pool.write_session()`. `RETURNING` hands
-  back the row the `INS_KLIENT_RECORD` trigger completed (the generated
-  `ID_KLIENT_TABLE`/`ID_KLIENT` and `ID_FIRMA`), so the answer is the same `Client`
-  projection `GET /clients` serves, with `201`.
+- `POST /clients` is one of the two traces that write. `WritesDisabled` → `403` when
+  `api.allow_writes` is off, `InvalidRequest` → `400` for a missing/blank `nazwa`, an
+  unknown field or an over-long value, then `_insert_plan()` merges the payload with
+  `CLIENT_INSERT_DEFAULTS` — the row profile the legacy program writes (`ID_FIRMA` `0`,
+  `TYP` `Odbiorca`, `PLATNOSC` `Gotówka`, `KOD_KRAJU` `PL`, empty strings, zeroed
+  flags) — and `build_insert("KLIENT", columns, returning=CLIENT_COLUMNS)` runs with
+  one bound parameter per column inside `pool.write_session()`. The defaults are not
+  cosmetics: the program filters its contractor list by `ID_FIRMA` and never shows a
+  row carrying the trigger fallback of `1`. `RETURNING` hands back the row the
+  `INS_KLIENT_RECORD` trigger completed (the generated
+  `ID_KLIENT_TABLE`/`ID_KLIENT`), so the answer is the same `Client` projection
+  `GET /clients` serves, with `201`.
+- `POST /machines` follows the same shape. The `MachineCreate` body is dumped without
+  its `null` fields, `service.create_machine` maps the keys onto
+  `MACHINE_WRITE_COLUMNS` (trimming strings, dropping blanks, rejecting unknown fields
+  and a missing/zero `id_klient`), keeps only the columns present in the catalog
+  snapshot and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
+  inside `pool.write_session()`. `RETURNING` yields the row `INS_MASZYNA_RECORD`
+  completed (generated `ID_MASZYNA_TABLE`/`ID_MASZYNA`, default `ID_ODDZIAL` and
+  `ID_FIRMA`), so the answer is a `Machine` with `201`. `SYNWP` is never set, so
+  nothing is queued for synchronisation.
 
 ### 1.4 Errors and shutdown
 
@@ -166,11 +181,11 @@ unauthenticated `GET /` liveness route.
 `hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
-`GET /agreements`, `GET /machines`, `GET /orders`, `GET /invoices`, `POST /query`
-(relative to `api.prefix`); everything except the first two is protected by the
-shared `protected` dependency list. Parameter bounds are generated from the
-settings; handlers return plain dicts and the declared `response_model` does
-validation + OpenAPI.
+`GET /agreements`, `GET /machines`, `POST /machines`, `GET /orders`,
+`GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
+first two is protected by the shared `protected` dependency list. Parameter bounds
+are generated from the settings; handlers return plain dicts and the declared
+`response_model` does validation + OpenAPI.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
@@ -226,8 +241,10 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`create_client()`, `run_query()`, plus the helpers `check_limit()`, `_order_clause()`,
-`_projection_page()`, `_default_order_clause()` and `_check_parameters()`. Module
+`create_client()`, `create_machine()`, `run_query()`, plus the helpers `check_limit()`,
+`_order_clause()`, `_projection_page()`, `_default_order_clause()`,
+`_check_parameters()`, `_returned_row()` and `_prepared_insert_values()`, and the
+module-level `_insert_plan()` that merges a payload with the legacy default profile.
 constants define the curated read models:
 `CLIENTS_TABLE`/`CLIENT_COLUMNS` + `CLIENT_SEARCH_COLUMNS`,
 `AGREEMENTS_TABLE`/`AGREEMENT_COLUMNS` + `AGREEMENT_SEARCH_COLUMNS`,
@@ -240,17 +257,37 @@ alias table to keep in sync. `_projection_page()` is the shared implementation o
 `/clients`, `/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page
 query on one connection, columns missing from the connected database silently skipped.
 
-`create_client()` is the only writing method: it refuses with `WritesDisabled` unless
-`api.allow_writes` is set, trims and validates the name (`CLIENT_NAME_MAX_LENGTH` mirrors
-the width of `NAZWA`), inserts a single column through `sql.build_insert()` with a
-`RETURNING` list built from `CLIENT_COLUMNS`, and executes it inside
-`pool.write_session()` so the row is committed or the transaction rolled back.
+`create_client()` and `create_machine()` are the only writing methods: both refuse with
+`WritesDisabled` unless `api.allow_writes` is set, build their statement with
+`sql.build_insert()` and execute it inside `pool.write_session()`, so the row is
+committed or the transaction rolled back. Both take a mapping keyed by the lower-cased
+column names and normalise it with `_prepared_insert_values()`: only the constants'
+columns are accepted (`CLIENT_WRITE_COLUMNS` / `MACHINE_WRITE_COLUMNS`, both subsets of
+the matching `*_COLUMNS` projection), strings are trimmed, blanks are dropped and each
+text value is limited with `CLIENT_TEXT_LENGTHS` / `MACHINE_TEXT_LENGTHS` (mirroring the
+column widths). `create_client()` then requires a non-blank `NAZWA`, merges the payload
+with `CLIENT_INSERT_DEFAULTS` through `_insert_plan()` and inserts the result with
+`RETURNING` built from `CLIENT_COLUMNS`; `create_machine()` requires a positive
+`ID_KLIENT` and returns `RETURNING` built from `MACHINE_COLUMNS`.
+`_returned_row()` maps such a tuple to the JSON dict both methods answer with.
+
+`CLIENT_INSERT_DEFAULTS` deserves its own paragraph: it holds the column values the
+legacy application itself writes into a new `KLIENT` row (`ID_FIRMA` `0`, `TYP`
+`Odbiorca`, `PLATNOSC` `Gotówka`, `KOD_KRAJU` `PL`, `IDW` `-1`, `''` instead of `NULL`
+for text, zeroed flags). A row that keeps the Firebird `NULL`s — and the
+`INS_KLIENT_RECORD` fallback `ID_FIRMA = 1` — is a valid contractor for SQL but does
+not appear in the program's client list, which is why the adapter reproduces that
+profile instead of relying on the column defaults. `OSTATNIO` and `GUSDATA` stay out:
+they belong to the program's clock and data version.
 
 **`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
 `HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
-`ClientCreate` (the `POST /clients` body: a single `nazwa`),
-`Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `Order`/`OrderPage`,
+`ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
+columns, unknown fields rejected),
+`Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `MachineCreate` (the
+`POST /machines` body: `id_klient` plus the optional machine columns, unknown fields
+rejected), `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection
 fields are all optional, so a missing column never breaks validation, and money columns
 use `DecimalValue = float | str`. Every projection field is named after its column,
@@ -269,7 +306,7 @@ password is supplied without committing it). `database.path` is deliberately rel
 is resolved against the project root, `database.charset` and `api.blob_encoding` must
 describe the same encoding, an empty `api_key` disables authentication, empty
 `cors_origins` skips the middleware and `allow_writes` is the switch that turns the
-`POST /clients` write path on.
+`POST /clients` and `POST /machines` write paths on.
 
 **`tests/`** — the pytest suite: `conftest.py` (settings fixture, `FakeService`, app and
 client fixtures), `test_api.py` (routes through `TestClient`), `test_service.py`

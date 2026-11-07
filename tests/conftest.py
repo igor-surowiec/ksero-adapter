@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
 from fastapi.testclient import TestClient
@@ -132,14 +132,28 @@ class FakeService:
             ],
         }
 
-    def create_client(self, *, nazwa: str) -> dict[str, Any]:
-        self.calls.append({"action": "create_client", "nazwa": nazwa})
-        return {
+    def create_client(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        self.calls.append({"action": "create_client", "values": dict(values)})
+        row: dict[str, Any] = {
             "id_klient_table": 1001,
             "id_klient": 42,
-            "nazwa": nazwa,
+            "nazwa": values.get("nazwa"),
             "nip": None,
             "ostatnio": None,
+        }
+        for key, value in values.items():
+            row[key] = value
+        return row
+
+    def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        self.calls.append({"action": "create_machine", "values": dict(values)})
+        return {
+            "id_maszyna_table": 2001,
+            "id_maszyna": 84,
+            "id_klient": values.get("id_klient"),
+            "id_oddzial": 1,
+            "marka": values.get("marka"),
+            "serial": values.get("serial"),
         }
 
     def fetch_agreements(

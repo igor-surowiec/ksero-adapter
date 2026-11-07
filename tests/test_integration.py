@@ -6,8 +6,8 @@ Set ``KS_TEST_DB_PATH`` (optionally ``KS_TEST_DB_USER``, ``KS_TEST_DB_PASSWORD``
     KS_TEST_DB_PATH="BAZAMS.FDB" pytest tests/test_integration.py
 
 The write tests additionally need ``KS_TEST_DB_WRITABLE=1``: they insert a
-disposable contractor and delete it again, so they are never run by accident
-against a production database.
+disposable contractor and machine and delete them again, so they are never run
+by accident against a production database.
 """
 
 from __future__ import annotations
@@ -318,17 +318,39 @@ def test_create_client_is_refused_without_allow_writes(
     service: DatabaseService,
 ) -> None:
     with pytest.raises(WritesDisabled):
-        service.create_client(nazwa="KS ADAPTER TEST")
+        service.create_client({"nazwa": "KS ADAPTER TEST"})
 
 
 @requires_writable
-def test_create_client_stores_the_name_only(write_service: DatabaseService) -> None:
+def test_create_client_stores_the_supplied_fields(
+    write_service: DatabaseService,
+) -> None:
     name = f"KS ADAPTER TEST {os.getpid()}"
-    created = write_service.create_client(nazwa=name)
+    created = write_service.create_client(
+        {
+            "nazwa": f"  {name}  ",
+            "nip": "1234567890",
+            "adres": "ul. Testowa 1",
+            "kod": "00-001",
+            "poczta": "Warszawa",
+            "telefon": "600100200",
+            "termin": 14,
+        }
+    )
     try:
         assert created["nazwa"] == name
         assert created["id_klient_table"]
         assert created["id_klient"]
+        assert created["nip"] == "1234567890"
+        assert created["adres"] == "ul. Testowa 1"
+        assert created["kod"] == "00-001"
+        assert created["poczta"] == "Warszawa"
+        assert created["telefon"] == "600100200"
+        assert created["termin"] == 14
+        # Untouched text columns carry the legacy application's empty strings,
+        # not NULL, because its forms always fill them in.
+        assert created["regon"] == ""
+        assert created["nazwa_s"] == ""
         page = write_service.fetch_clients(search=name, limit=5)
         assert [client["id_klient_table"] for client in page["clients"]] == [
             created["id_klient_table"]
@@ -338,17 +360,162 @@ def test_create_client_stores_the_name_only(write_service: DatabaseService) -> N
 
 
 @requires_writable
+def test_create_client_matches_the_legacy_row_profile(
+    write_service: DatabaseService,
+) -> None:
+    """A bridged client must look exactly like one the program created.
+
+    The program filters its client list by ``ID_FIRMA`` and leans on the other
+    columns of :data:`ks_adapter.service.CLIENT_INSERT_DEFAULTS`, so this test
+    reads them straight from the stored row, outside the curated projection.
+    """
+    from ks_adapter.service import CLIENT_INSERT_DEFAULTS
+
+    name = f"KS ADAPTER PROFILE {os.getpid()}"
+    created = write_service.create_client({"nazwa": name})
+    try:
+        with write_service.pool.session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    'SELECT "ID_FIRMA", "ID_KLIENT", "ID_ODDZIAL", "TYP", '
+                    '"PLATNOSC", "KOD_KRAJU", "IDW", "AKTYWNY", "NAZWA_S", '
+                    '"STATUS", "OSTZAPIS" FROM "KLIENT" '
+                    'WHERE "ID_KLIENT_TABLE" = ?',
+                    [created["id_klient_table"]],
+                )
+                row = cursor.fetchone()
+            finally:
+                cursor.close()
+        stored = dict(
+            zip(
+                (
+                    "ID_FIRMA",
+                    "ID_KLIENT",
+                    "ID_ODDZIAL",
+                    "TYP",
+                    "PLATNOSC",
+                    "KOD_KRAJU",
+                    "IDW",
+                    "AKTYWNY",
+                    "NAZWA_S",
+                    "STATUS",
+                    "OSTZAPIS",
+                ),
+                row,
+            )
+        )
+        for column, expected in CLIENT_INSERT_DEFAULTS.items():
+            if column in stored and column != "ID_ODDZIAL":
+                assert stored[column] == expected, column
+        assert stored["ID_FIRMA"] == 0
+        assert stored["ID_ODDZIAL"] == 1
+        assert stored["ID_KLIENT"] == created["id_klient"]
+    finally:
+        delete_client(write_service, created["id_klient_table"])
+
+
+@requires_writable
 def test_create_client_endpoint_over_http(write_service: DatabaseService) -> None:
     name = f"KS ADAPTER HTTP {os.getpid()}"
     app = create_app(write_service.settings, service=write_service)
     with TestClient(app) as client:
-        response = client.post("/api/v1/clients", json={"nazwa": name})
+        response = client.post(
+            "/api/v1/clients",
+            json={"nazwa": name, "nip": "1234567890", "poczta": "Warszawa"},
+        )
     body = response.json()
     try:
         assert response.status_code == 201
         assert body["nazwa"] == name
+        assert body["nip"] == "1234567890"
+        assert body["poczta"] == "Warszawa"
         assert body["id_klient_table"]
     finally:
         if response.status_code == 201:
             delete_client(write_service, body["id_klient_table"])
+
+
+
+def delete_machine(service: DatabaseService, surrogate_key: int) -> None:
+    """Remove a test machine again (the adapter itself has no delete route)."""
+    with service.pool.write_session() as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                'DELETE FROM "MASZYNA" WHERE "ID_MASZYNA_TABLE" = ?', [surrogate_key]
+            )
+        finally:
+            cursor.close()
+
+
+def test_create_machine_is_refused_without_allow_writes(
+    service: DatabaseService,
+) -> None:
+    with pytest.raises(WritesDisabled):
+        service.create_machine({"id_klient": 1, "marka": "KS ADAPTER TEST"})
+
+
+@requires_writable
+def test_create_machine_stores_the_supplied_fields(
+    write_service: DatabaseService,
+) -> None:
+    import datetime as dt
+
+    owner = write_service.create_client(
+        {"nazwa": f"KS ADAPTER MACHINE {os.getpid()}"}
+    )
+    serial = f"KS-MASZYNA-{os.getpid()}"
+    machine: dict[str, object] = {}
+    try:
+        machine = write_service.create_machine(
+            {
+                "id_klient": owner["id_klient"],
+                "marka": "KS ADAPTER TEST",
+                "model": "TEST-1",
+                "serial": serial,
+                "instalacja": dt.date(2026, 1, 2),
+                "uwagi": "  wpis testowy  ",
+            }
+        )
+        assert machine["id_maszyna_table"]
+        assert machine["id_maszyna"]
+        assert machine["id_klient"] == owner["id_klient"]
+        assert machine["marka"] == "KS ADAPTER TEST"
+        assert machine["serial"] == serial
+        assert machine["instalacja"] == "2026-01-02"
+        assert machine["uwagi"] == "wpis testowy"
+        assert machine["aktywna"] is None
+
+        page = write_service.fetch_machines(search=serial, limit=5)
+        assert [row["id_maszyna_table"] for row in page["machines"]] == [
+            machine["id_maszyna_table"]
+        ]
+    finally:
+        if machine:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_create_machine_endpoint_over_http(write_service: DatabaseService) -> None:
+    owner = write_service.create_client(
+        {"nazwa": f"KS ADAPTER MACHINE HTTP {os.getpid()}"}
+    )
+    serial = f"KS-MASZYNA-HTTP-{os.getpid()}"
+    app = create_app(write_service.settings, service=write_service)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/machines",
+            json={"id_klient": owner["id_klient"], "serial": serial, "marka": "KS"},
+        )
+    body = response.json()
+    try:
+        assert response.status_code == 201
+        assert body["serial"] == serial
+        assert body["id_maszyna_table"]
+    finally:
+        if response.status_code == 201:
+            delete_machine(write_service, body["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
 

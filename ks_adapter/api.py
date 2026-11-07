@@ -16,6 +16,8 @@ from .schemas import (
     ClientPage,
     HealthResponse,
     InvoicePage,
+    Machine,
+    MachineCreate,
     MachinePage,
     OrderPage,
     QueryRequest,
@@ -203,12 +205,17 @@ def create_router(settings: AppSettings) -> APIRouter:
         description=(
             "Inserts one row into the KLIENT table and returns the stored row "
             "in the same shape as GET /clients (keys are the lower-cased "
-            "column names). 'nazwa' (NAZWA) is the only required value: the "
-            "INS_KLIENT_RECORD trigger fills ID_KLIENT_TABLE, ID_KLIENT and "
-            "ID_FIRMA from its generators/constants and ID_ODDZIAL falls back "
-            "to its column default, so every other column stays null. "
-            "Requires 'api.allow_writes' (otherwise 403) and, when configured, "
-            "the X-API-Key header."
+            "column names). 'nazwa' (NAZWA) is the only required value; every "
+            "other field is optional. Columns the payload omits get the "
+            "defaults the legacy application itself writes (ID_FIRMA 0, TYP "
+            "'Odbiorca', PLATNOSC 'Gotowka', KOD_KRAJU 'PL', IDW -1, empty "
+            "strings instead of null, zeroed flags), because a row that keeps "
+            "the raw Firebird defaults never shows up in that program. The "
+            "INS_KLIENT_RECORD trigger fills ID_KLIENT_TABLE and ID_KLIENT "
+            "from their generators and ID_ODDZIAL falls back to its column "
+            "default. Unknown fields are rejected with 422 instead of being "
+            "ignored. Requires 'api.allow_writes' (otherwise 403) and, when "
+            "configured, the X-API-Key header."
         ),
         dependencies=protected,
     )
@@ -216,7 +223,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         payload: ClientCreate,
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
-        return service.create_client(nazwa=payload.nazwa)
+        return service.create_client(payload.model_dump(exclude_none=True))
 
     @router.get(
         "/agreements",
@@ -285,6 +292,31 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.fetch_machines(limit=limit, offset=offset, search=search)
+
+    @router.post(
+        "/machines",
+        response_model=Machine,
+        status_code=status.HTTP_201_CREATED,
+        tags=["data"],
+        summary="Create a machine (installed device)",
+        description=(
+            "Inserts one row into the MASZYNA table and returns the stored row "
+            "in the same shape as GET /machines (keys are the lower-cased "
+            "column names). 'id_klient' is the only required field: the "
+            "INS_MASZYNA_RECORD trigger fills ID_MASZYNA_TABLE and ID_MASZYNA "
+            "from their generators, ID_ODDZIAL, ID_FIRMA and IDVAT fall back to "
+            "their column defaults, so the new row carries only the fields that "
+            "were sent with a non-blank value. Unknown fields are rejected with "
+            "422. Requires 'api.allow_writes' (otherwise 403) and, when "
+            "configured, the X-API-Key header."
+        ),
+        dependencies=protected,
+    )
+    def create_machine(
+        payload: MachineCreate,
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.create_machine(payload.model_dump(exclude_none=True))
 
     @router.get(
         "/orders",

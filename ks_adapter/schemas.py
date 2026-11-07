@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .service import CLIENT_TEXT_LENGTHS, MACHINE_TEXT_LENGTHS
 
 #: ``NUMERIC``/``DECIMAL`` columns are serialised as floats, or as strings when
 #: ``api.decimal_as_string`` is enabled (see ``serialization.to_jsonable``), so
@@ -101,20 +105,93 @@ class ClientPage(BaseModel):
 class ClientCreate(BaseModel):
     """Payload of ``POST /clients``.
 
-    ``nazwa`` is the only value the caller has to supply: Firebird assigns the
-    surrogate and business keys from their generators and the ``ID_FIRMA`` /
-    ``ID_ODDZIAL`` defaults (or the ``INS_KLIENT_RECORD`` trigger), so no other
-    column of ``KLIENT`` is required.
+    Only ``nazwa`` is required: Firebird assigns the surrogate and business keys
+    from their generators and the ``INS_KLIENT_RECORD`` trigger fills the ones
+    the insert does not supply (``ID_ODDZIAL`` falls back to its column default),
+    so every other field is optional.  Columns left out are filled with
+    ``service.CLIENT_INSERT_DEFAULTS`` - the values the legacy application
+    writes into a new contractor - rather than with ``NULL``, because the
+    program does not list a client whose row keeps the raw Firebird defaults.
+    The field names are the lower-cased column names of ``KLIENT``, exactly as
+    ``GET /clients`` returns them, and an unknown field is refused instead of
+    being dropped silently.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     nazwa: str = Field(
         min_length=1,
-        max_length=500,
+        max_length=CLIENT_TEXT_LENGTHS["NAZWA"],
         description=(
             "Full contractor name, stored in KLIENT.NAZWA; surrounding "
             "whitespace is trimmed"
         ),
     )
+    nazwa_s: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["NAZWA_S"],
+        description="Short (invoice) name",
+    )
+    nip: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["NIP"],
+        description="Tax identifier",
+    )
+    regon: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["REGON"],
+        description="Statistical number",
+    )
+    adres: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["ADRES"],
+        description="Street address",
+    )
+    kod: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["KOD"],
+        description="Postal code",
+    )
+    poczta: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["POCZTA"],
+        description="City",
+    )
+    wojewodztwo: int | None = Field(
+        default=None, description="Province dictionary id"
+    )
+    telefon: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["TELEFON"],
+        description="Phone number",
+    )
+    e_mail: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["E_MAIL"],
+        description="E-mail address",
+    )
+    www: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["WWW"],
+        description="Website",
+    )
+    typ: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["TYP"],
+        description="Client type",
+    )
+    aktywny: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["AKTYWNY"],
+        description="Raw active flag",
+    )
+    platnosc: str | None = Field(
+        default=None,
+        max_length=CLIENT_TEXT_LENGTHS["PLATNOSC"],
+        description="Payment method",
+    )
+    termin: int | None = Field(default=None, description="Payment term in days")
+    rabat: int | None = Field(default=None, description="Discount")
 
 
 class Agreement(BaseModel):
@@ -225,6 +302,124 @@ class MachinePage(BaseModel):
     limit: int
     offset: int
     machines: list[Machine]
+
+
+class MachineCreate(BaseModel):
+    """Payload of ``POST /machines``.
+
+    Only ``id_klient`` is mandatory: the ``INS_MASZYNA_RECORD`` trigger assigns
+    ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators and
+    ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults, so
+    every other field may be omitted.  An omitted, ``null`` or blank field is not
+    inserted at all, which leaves the column at its default.  Field names are the
+    lower-cased column names and unknown fields are rejected, because a machine
+    has many similar columns and a typo would otherwise be dropped silently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id_klient: int = Field(ge=1, description="Owner (KLIENT.ID_KLIENT)")
+    id_oddzial: int | None = Field(
+        default=None, description="Branch (column default 1)"
+    )
+    id_firma: int | None = Field(default=None, description="Company (column default 0)")
+    id_model: int | None = Field(default=None, description="Model dictionary id")
+    id_umowacpc: int | None = Field(
+        default=None, description="Servicing agreement (UMOWACPC)"
+    )
+    marka: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["MARKA"],
+        description="Manufacturer",
+    )
+    model: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["MODEL"],
+        description="Model name",
+    )
+    grupa: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["GRUPA"],
+        description="Device group",
+    )
+    typ: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["TYP"],
+        description="Device type",
+    )
+    rodzaj_us: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["RODZAJ_US"],
+        description="Billing model, e.g. 'Płatne'",
+    )
+    serial: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["SERIAL"],
+        description="Serial number",
+    )
+    serial2: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["SERIAL2"],
+        description="Secondary serial",
+    )
+    ewidencja: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["EWIDENCJA"],
+        description="Asset record number",
+    )
+    stoi: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["STOI"],
+        description="Placement inside the site",
+    )
+    adres: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["ADRES"],
+        description="Site address",
+    )
+    miejscowosc: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["MIEJSCOWOSC"],
+        description="Site city",
+    )
+    email: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["EMAIL"],
+        description="Notification e-mail",
+    )
+    technik: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["TECHNIK"],
+        description="Technician",
+    )
+    instalacja: date | None = Field(default=None, description="Installation date")
+    gwarancja: int | None = Field(default=None, description="Warranty in months")
+    gwarancja_do: date | None = Field(default=None, description="Warranty end date")
+    licznik: int | None = Field(default=None, description="Meter value")
+    licznika3: int | None = Field(default=None, description="A3 meter")
+    przeglady: int | None = Field(default=None, description="Services performed")
+    konserwacja: date | None = Field(default=None, description="Next maintenance date")
+    oplata: Decimal | None = Field(default=None, description="Unit fee")
+    uwagi: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["UWAGI"],
+        description="Notes",
+    )
+    zalecenia: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["ZALECENIA"],
+        description="Service recommendations",
+    )
+    aktywna: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["AKTYWNA"],
+        description="Raw active flag, e.g. 'TAK'",
+    )
+    kolorowa: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["KOLOROWA"],
+        description="Raw colour flag, e.g. 'TAK'",
+    )
 
 
 class Order(BaseModel):

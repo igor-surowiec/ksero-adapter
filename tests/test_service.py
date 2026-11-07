@@ -1120,32 +1120,110 @@ def test_invoice_search_list_stays_within_the_firebird_message_limit() -> None:
     assert len(set(INVOICE_SEARCH_COLUMNS)) == len(INVOICE_SEARCH_COLUMNS)
 
 
-def test_create_client_inserts_only_the_name() -> None:
+KLIENT_WRITABLE = TableInfo(
+    name="KLIENT",
+    kind="table",
+    description=None,
+    columns=(
+        ColumnInfo("ID_KLIENT_TABLE", 0, "INTEGER", False),
+        ColumnInfo("ID_KLIENT", 1, "INTEGER", False),
+        ColumnInfo("ID_FIRMA", 2, "INTEGER", False),
+        ColumnInfo("NAZWA", 3, "VARCHAR(500)", True),
+        ColumnInfo("NAZWA_S", 4, "VARCHAR(50)", True),
+        ColumnInfo("NIP", 5, "VARCHAR(20)", True),
+        ColumnInfo("ADRES", 6, "VARCHAR(250)", True),
+        ColumnInfo("TERMIN", 7, "INTEGER", True),
+        ColumnInfo("TYP", 8, "VARCHAR(50)", True),
+        ColumnInfo("PLATNOSC", 9, "VARCHAR(50)", True),
+        ColumnInfo("KOD_KRAJU", 10, "VARCHAR(20)", True),
+        ColumnInfo("STATUS", 11, "INTEGER", True),
+        ColumnInfo("OSTATNIO", 12, "DATE", True),
+    ),
+)
+
+KLIENT_RETURNING = [
+    ("ID_KLIENT_TABLE",),
+    ("ID_KLIENT",),
+    ("NAZWA",),
+    ("NAZWA_S",),
+    ("NIP",),
+    ("ADRES",),
+    ("TYP",),
+    ("PLATNOSC",),
+    ("TERMIN",),
+    ("OSTATNIO",),
+]
+
+#: The columns a ``POST /clients`` insert returns; ``CLIENT_COLUMNS`` filtered by
+#: the stub catalog above.
+KLIENT_RETURNING_COLUMNS = (
+    "ID_KLIENT_TABLE",
+    "ID_KLIENT",
+    "NAZWA",
+    "NAZWA_S",
+    "NIP",
+    "ADRES",
+    "TYP",
+    "PLATNOSC",
+    "TERMIN",
+    "OSTATNIO",
+)
+
+
+def _client_insert(columns: tuple[str, ...]) -> str:
+    """The statement ``create_client`` must build for ``columns``."""
+    names = ", ".join(f'"{column}"' for column in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    returning = ", ".join(f'"{column}"' for column in KLIENT_RETURNING_COLUMNS)
+    return (
+        f'INSERT INTO "KLIENT" ({names}) VALUES ({placeholders}) '
+        f"RETURNING {returning}"
+    )
+
+
+def test_create_client_inserts_the_supplied_columns() -> None:
     import datetime as dt
 
-    pool = _Pool(
-        [
-            (
-                [
-                    ("ID_KLIENT_TABLE",),
-                    ("ID_KLIENT",),
-                    ("NAZWA",),
-                    ("NIP",),
-                    ("OSTATNIO",),
-                ],
-                [(5, 4, "ACME", None, dt.date(2026, 1, 2))],
-            )
-        ]
+    row = (
+        5,
+        4,
+        "ACME",
+        None,
+        "1234567890",
+        "",
+        "Odbiorca",
+        "Gotówka",
+        14,
+        dt.date(2026, 1, 2),
     )
-    service = make_projection_service(pool, KLIENT, allow_writes=True)
+    pool = _Pool([(KLIENT_RETURNING, [row])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
 
-    created = service.create_client(nazwa="  ACME  ")
+    created = service.create_client(
+        {
+            "nazwa": "  ACME  ",
+            "nip": "1234567890",
+            "adres": "   ",
+            "termin": 14,
+        }
+    )
 
+    columns = (
+        "NAZWA",
+        "NIP",
+        "TERMIN",
+        "ID_FIRMA",
+        "NAZWA_S",
+        "ADRES",
+        "KOD_KRAJU",
+        "TYP",
+        "PLATNOSC",
+        "STATUS",
+    )
     assert pool.executed == [
         (
-            'INSERT INTO "KLIENT" ("NAZWA") VALUES (?) RETURNING '
-            '"ID_KLIENT_TABLE", "ID_KLIENT", "NAZWA", "NIP", "OSTATNIO"',
-            ["ACME"],
+            _client_insert(columns),
+            ["ACME", "1234567890", 14, 0, "", "", "PL", "Odbiorca", "Gotówka", 0],
         )
     ]
     assert pool.committed == 1
@@ -1154,32 +1232,146 @@ def test_create_client_inserts_only_the_name() -> None:
         "id_klient_table": 5,
         "id_klient": 4,
         "nazwa": "ACME",
-        "nip": None,
+        "nazwa_s": None,
+        "nip": "1234567890",
+        "adres": "",
+        "typ": "Odbiorca",
+        "platnosc": "Gotówka",
+        "termin": 14,
         "ostatnio": "2026-01-02",
     }
 
 
+def test_create_client_accepts_upper_cased_field_names() -> None:
+    pool = _Pool(
+        [(KLIENT_RETURNING, [(5, 4, "ACME", None, None, None, None, None, None, None)])]
+    )
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+
+    service.create_client({"NAZWA": "ACME", "Nip": "1234567890"})
+
+    columns = (
+        "NAZWA",
+        "NIP",
+        "ID_FIRMA",
+        "NAZWA_S",
+        "ADRES",
+        "KOD_KRAJU",
+        "TYP",
+        "PLATNOSC",
+        "TERMIN",
+        "STATUS",
+    )
+    assert pool.executed == [
+        (
+            _client_insert(columns),
+            ["ACME", "1234567890", 0, "", "", "PL", "Odbiorca", "Gotówka", 0, 0],
+        )
+    ]
+
+
+def test_create_client_carries_the_legacy_application_defaults() -> None:
+    from ks_adapter.service import CLIENT_INSERT_DEFAULTS, CLIENT_TEXT_LENGTHS
+
+    # The values the program itself writes; a row without them never appears in
+    # its client list, so they are part of the contract, not cosmetics.
+    assert CLIENT_INSERT_DEFAULTS["ID_FIRMA"] == 0
+    assert CLIENT_INSERT_DEFAULTS["IDW"] == -1
+    assert CLIENT_INSERT_DEFAULTS["KOD_KRAJU"] == "PL"
+    assert CLIENT_INSERT_DEFAULTS["TYP"] == "Odbiorca"
+    assert CLIENT_INSERT_DEFAULTS["PLATNOSC"] == "Gotówka"
+    assert CLIENT_INSERT_DEFAULTS["AKTYWNY"] == ""
+    assert CLIENT_INSERT_DEFAULTS["OSTZAPIS"] == 0
+    # The program stamps these from its own clock; the adapter must not invent
+    # them, otherwise a bridged row looks older than it is.
+    assert "OSTATNIO" not in CLIENT_INSERT_DEFAULTS
+    assert "GUSDATA" not in CLIENT_INSERT_DEFAULTS
+    # The profile must fit the column widths it is inserted into.
+    for column, value in CLIENT_INSERT_DEFAULTS.items():
+        maximum = CLIENT_TEXT_LENGTHS.get(column)
+        if maximum is not None:
+            assert len(value) <= maximum
+    # The generator-driven keys stay out: they come from the trigger.
+    assert "ID_KLIENT" not in CLIENT_INSERT_DEFAULTS
+    assert "ID_KLIENT_TABLE" not in CLIENT_INSERT_DEFAULTS
+
+
+def test_create_client_prefers_supplied_values_over_the_defaults() -> None:
+    pool = _Pool(
+        [
+            (
+                KLIENT_RETURNING,
+                [(5, 4, "ACME", None, None, None, "Dostawca", "Przelew", 30, None)],
+            )
+        ]
+    )
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+
+    service.create_client(
+        {"nazwa": "ACME", "typ": "Dostawca", "platnosc": "Przelew", "termin": 30}
+    )
+
+    statement, params = pool.executed[0]
+    assert statement == _client_insert(
+        (
+            "NAZWA",
+            "TYP",
+            "PLATNOSC",
+            "TERMIN",
+            "ID_FIRMA",
+            "NAZWA_S",
+            "ADRES",
+            "NIP",
+            "KOD_KRAJU",
+            "STATUS",
+        )
+    )
+    assert params == ["ACME", "Dostawca", "Przelew", 30, 0, "", "", "", "PL", 0]
+
+
 def test_create_client_is_rejected_when_writes_are_disabled() -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, KLIENT)
+    service = make_projection_service(pool, KLIENT_WRITABLE)
 
     with pytest.raises(WritesDisabled):
-        service.create_client(nazwa="ACME")
+        service.create_client({"nazwa": "ACME"})
 
     assert pool.executed == []
     assert pool.committed == 0
 
 
-def test_create_client_validates_the_name() -> None:
+def test_create_client_requires_a_name() -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, KLIENT, allow_writes=True)
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+
+    for values in (
+        {},
+        {"nip": "1234567890"},
+        {"nazwa": None},
+        {"nazwa": ""},
+        {"nazwa": "   "},
+    ):
+        with pytest.raises(InvalidRequest):
+            service.create_client(values)
 
     with pytest.raises(InvalidRequest):
-        service.create_client(nazwa="")
+        service.create_client([])  # type: ignore[arg-type]
+
+    assert pool.executed == []
+
+
+def test_create_client_rejects_unknown_and_over_long_values() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+
     with pytest.raises(InvalidRequest):
-        service.create_client(nazwa="   ")
+        service.create_client({"nazwa": "ACME", "id_klient": 1})
     with pytest.raises(InvalidRequest):
-        service.create_client(nazwa="x" * 501)
+        service.create_client({"nazwa": "ACME", "ostatnio": "2026-01-02"})
+    with pytest.raises(InvalidRequest):
+        service.create_client({"nazwa": "x" * 501})
+    with pytest.raises(InvalidRequest):
+        service.create_client({"nazwa": "ACME", "nip": "1" * 21})
 
     assert pool.executed == []
 
@@ -1197,7 +1389,7 @@ def test_create_client_skips_columns_missing_from_the_schema() -> None:
     pool = _Pool([([("ID_KLIENT_TABLE",), ("NAZWA",)], [(7, "ACME")])])
     service = make_projection_service(pool, narrow, allow_writes=True)
 
-    assert service.create_client(nazwa="ACME") == {
+    assert service.create_client({"nazwa": "ACME", "nip": "1234567890"}) == {
         "id_klient_table": 7,
         "nazwa": "ACME",
     }
@@ -1221,18 +1413,222 @@ def test_create_client_requires_the_name_column() -> None:
     service = make_projection_service(pool, broken, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_client(nazwa="ACME")
+        service.create_client({"nazwa": "ACME"})
 
     assert pool.executed == []
 
 
 def test_create_client_rolls_back_when_the_insert_fails() -> None:
     pool = _Pool([])  # no scripted response -> the cursor raises
-    service = make_projection_service(pool, KLIENT, allow_writes=True)
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
 
     with pytest.raises(IndexError):
-        service.create_client(nazwa="ACME")
+        service.create_client({"nazwa": "ACME"})
 
     assert pool.committed == 0
     assert pool.rolled_back == 1
+
+
+
+MASZYNA_WRITABLE = TableInfo(
+    name="MASZYNA",
+    kind="table",
+    description=None,
+    columns=(
+        ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+        ColumnInfo("ID_MASZYNA", 1, "INTEGER", False),
+        ColumnInfo("ID_KLIENT", 2, "INTEGER", False),
+        ColumnInfo("MARKA", 3, "VARCHAR(100)", True),
+        ColumnInfo("SERIAL", 4, "VARCHAR(100)", True),
+        ColumnInfo("INSTALACJA", 5, "DATE", True),
+        ColumnInfo("OPLATA", 6, "DECIMAL(15,4)", True),
+    ),
+)
+
+MASZYNA_RETURNING = [
+    ("ID_MASZYNA_TABLE",),
+    ("ID_MASZYNA",),
+    ("ID_KLIENT",),
+    ("MARKA",),
+    ("SERIAL",),
+    ("INSTALACJA",),
+    ("OPLATA",),
+]
+
+
+def test_create_machine_inserts_the_supplied_columns() -> None:
+    import datetime as dt
+    from decimal import Decimal
+
+    row = (9, 84, 7, "KONICA", None, dt.date(2026, 1, 2), Decimal("120.5000"))
+    pool = _Pool([(MASZYNA_RETURNING, [row])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    created = service.create_machine(
+        {
+            "id_klient": 7,
+            "marka": "  KONICA  ",
+            "serial": "   ",
+            "instalacja": dt.date(2026, 1, 2),
+            "oplata": Decimal("120.5"),
+        }
+    )
+
+    assert pool.executed == [
+        (
+            'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "INSTALACJA", "OPLATA") '
+            'VALUES (?, ?, ?, ?) RETURNING "ID_MASZYNA_TABLE", "ID_MASZYNA", '
+            '"ID_KLIENT", "MARKA", "SERIAL", "INSTALACJA", "OPLATA"',
+            [7, "KONICA", dt.date(2026, 1, 2), Decimal("120.5")],
+        )
+    ]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+    assert created == {
+        "id_maszyna_table": 9,
+        "id_maszyna": 84,
+        "id_klient": 7,
+        "marka": "KONICA",
+        "serial": None,
+        "instalacja": "2026-01-02",
+        "oplata": 120.5,
+    }
+
+
+
+def test_create_machine_accepts_upper_cased_field_names() -> None:
+    pool = _Pool([(MASZYNA_RETURNING, [(1, 2, 7, "KONICA", None, None, None)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    service.create_machine({"ID_KLIENT": 7, "Marka": "KONICA"})
+
+    assert pool.executed[0][0] == (
+        'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA") VALUES (?, ?) RETURNING '
+        '"ID_MASZYNA_TABLE", "ID_MASZYNA", "ID_KLIENT", "MARKA", "SERIAL", '
+        '"INSTALACJA", "OPLATA"'
+    )
+    assert pool.executed[0][1] == [7, "KONICA"]
+
+
+def test_create_machine_requires_a_positive_owner() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    for values in (
+        {},
+        {"marka": "KONICA"},
+        {"id_klient": 0},
+        {"id_klient": -3},
+        {"id_klient": True},
+        {"id_klient": "7"},
+        {"id_klient": None},
+    ):
+        with pytest.raises(InvalidRequest):
+            service.create_machine(values)
+
+    with pytest.raises(InvalidRequest):
+        service.create_machine([])  # type: ignore[arg-type]
+
+    assert pool.executed == []
+
+
+def test_create_machine_rejects_unknown_fields() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    with pytest.raises(InvalidRequest):
+        service.create_machine({"id_klient": 7, "serialnumber": "SN-1"})
+    with pytest.raises(InvalidRequest):
+        service.create_machine({"id_klient": 7, "koszty": 10.0})
+
+    assert pool.executed == []
+
+
+def test_create_machine_rejects_over_long_text() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    with pytest.raises(InvalidRequest):
+        service.create_machine({"id_klient": 7, "marka": "x" * 101})
+
+    assert pool.executed == []
+
+
+def test_create_machine_is_rejected_when_writes_are_disabled() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE)
+
+    with pytest.raises(WritesDisabled):
+        service.create_machine({"id_klient": 7})
+
+    assert pool.executed == []
+    assert pool.committed == 0
+
+
+
+def test_create_machine_skips_columns_missing_from_the_schema() -> None:
+    narrow = TableInfo(
+        name="MASZYNA",
+        kind="table",
+        description=None,
+        columns=(
+            ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+            ColumnInfo("ID_KLIENT", 1, "INTEGER", False),
+        ),
+    )
+    pool = _Pool([([("ID_MASZYNA_TABLE",), ("ID_KLIENT",)], [(11, 7)])])
+    service = make_projection_service(pool, narrow, allow_writes=True)
+
+    assert service.create_machine({"id_klient": 7, "marka": "KONICA"}) == {
+        "id_maszyna_table": 11,
+        "id_klient": 7,
+    }
+    assert pool.executed[0][0] == (
+        'INSERT INTO "MASZYNA" ("ID_KLIENT") VALUES (?) RETURNING '
+        '"ID_MASZYNA_TABLE", "ID_KLIENT"'
+    )
+
+
+def test_create_machine_requires_the_owner_column() -> None:
+    broken = TableInfo(
+        name="MASZYNA",
+        kind="table",
+        description=None,
+        columns=(
+            ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+            ColumnInfo("MARKA", 1, "VARCHAR(100)", True),
+        ),
+    )
+    pool = _Pool([])
+    service = make_projection_service(pool, broken, allow_writes=True)
+
+    with pytest.raises(InvalidRequest):
+        service.create_machine({"id_klient": 7})
+
+    assert pool.executed == []
+
+
+def test_create_machine_rolls_back_when_the_insert_fails() -> None:
+    pool = _Pool([])  # no scripted response -> the cursor raises
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+
+    with pytest.raises(IndexError):
+        service.create_machine({"id_klient": 7})
+
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_create_machine_reuses_the_curated_column_lists() -> None:
+    """The write payload must not reach columns the projection does not serve."""
+
+    from ks_adapter.service import (
+        MACHINE_COLUMNS,
+        MACHINE_TEXT_LENGTHS,
+        MACHINE_WRITE_COLUMNS,
+    )
+
+    assert set(MACHINE_WRITE_COLUMNS) <= set(MACHINE_COLUMNS)
+    assert set(MACHINE_TEXT_LENGTHS) <= set(MACHINE_WRITE_COLUMNS)
+    assert len(set(MACHINE_WRITE_COLUMNS)) == len(MACHINE_WRITE_COLUMNS)
 

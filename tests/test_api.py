@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 from fastapi.testclient import TestClient
 
 from ks_adapter.app import create_app
@@ -145,6 +147,7 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     assert "post" in paths["/api/v1/clients"]
     assert "/api/v1/agreements" in paths
     assert "/api/v1/machines" in paths
+    assert "post" in paths["/api/v1/machines"]
     assert "/api/v1/orders" in paths
     assert "/api/v1/invoices" in paths
     assert "/api/v1/query" in paths
@@ -516,8 +519,28 @@ def test_create_client_returns_the_stored_row(
     assert body["nip"] is None
     assert fake_service.calls[-1] == {
         "action": "create_client",
-        "nazwa": "ACME Sp. z o.o.",
+        "values": {"nazwa": "ACME Sp. z o.o."},
     }
+
+
+def test_create_client_forwards_every_optional_field(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    payload = {
+        "nazwa": "ACME Sp. z o.o.",
+        "nip": "1234567890",
+        "adres": "ul. Testowa 1",
+        "kod": "00-001",
+        "poczta": "Warszawa",
+        "wojewodztwo": 7,
+        "termin": 14,
+    }
+
+    response = client.post("/api/v1/clients", json=payload)
+
+    assert response.status_code == 201
+    assert fake_service.calls[-1] == {"action": "create_client", "values": payload}
+    assert response.json()["nip"] == "1234567890"
 
 
 def test_create_client_requires_a_name(client: TestClient) -> None:
@@ -525,7 +548,29 @@ def test_create_client_requires_a_name(client: TestClient) -> None:
     assert client.post("/api/v1/clients", json={"nazwa": ""}).status_code == 422
     assert client.post("/api/v1/clients", json={"nazwa": "x" * 501}).status_code == 422
     assert client.post("/api/v1/clients", json={"name": "ACME"}).status_code == 422
+    assert client.post("/api/v1/clients", json={"nip": "1234567890"}).status_code == 422
     assert client.post("/api/v1/clients").status_code == 422
+
+
+def test_create_client_rejects_unknown_and_overlong_fields(client: TestClient) -> None:
+    assert (
+        client.post(
+            "/api/v1/clients", json={"nazwa": "ACME", "id_klient": 1}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/clients", json={"nazwa": "ACME", "nip": "1" * 21}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/clients", json={"nazwa": "ACME", "kod": "00-0001"}
+        ).status_code
+        == 422
+    )
 
 
 def test_create_client_requires_api_key() -> None:
@@ -545,12 +590,120 @@ def test_create_client_reports_disabled_writes_as_403() -> None:
     """``api.allow_writes: false`` must answer 403, not 500."""
 
     class ReadOnlyService(FakeService):
-        def create_client(self, *, nazwa: str) -> dict[str, object]:
+        def create_client(self, values: Mapping[str, Any]) -> dict[str, object]:
             raise WritesDisabled("Writes are disabled")
 
     app = create_app(make_settings(), service=ReadOnlyService())
     with TestClient(app) as client:
         response = client.post("/api/v1/clients", json={"nazwa": "ACME"})
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Writes are disabled",
+        "error": "WritesDisabled",
+    }
+
+
+def test_create_machine_returns_the_stored_row(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    response = client.post(
+        "/api/v1/machines",
+        json={"id_klient": 7, "marka": "KONICA", "serial": "SN-0001"},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id_maszyna_table"] == 2001
+    assert body["id_maszyna"] == 84
+    assert body["id_klient"] == 7
+    assert body["marka"] == "KONICA"
+    assert fake_service.calls[-1] == {
+        "action": "create_machine",
+        "values": {"id_klient": 7, "marka": "KONICA", "serial": "SN-0001"},
+    }
+
+
+def test_create_machine_sends_only_the_supplied_fields(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    """``null`` fields are dropped, so the insert keeps the column defaults."""
+
+    response = client.post(
+        "/api/v1/machines",
+        json={"id_klient": 7, "marka": "KONICA", "serial": None, "uwagi": None},
+    )
+
+    assert response.status_code == 201
+    assert fake_service.calls[-1] == {
+        "action": "create_machine",
+        "values": {"id_klient": 7, "marka": "KONICA"},
+    }
+
+
+def test_create_machine_requires_the_owner(client: TestClient) -> None:
+    assert client.post("/api/v1/machines", json={}).status_code == 422
+    assert client.post("/api/v1/machines", json={"marka": "KONICA"}).status_code == 422
+    assert client.post("/api/v1/machines", json={"id_klient": 0}).status_code == 422
+    assert client.post("/api/v1/machines", json={"id_klient": "x"}).status_code == 422
+    assert client.post("/api/v1/machines").status_code == 422
+
+
+def test_create_machine_rejects_unknown_fields(client: TestClient) -> None:
+    """A typo must not be dropped silently, the machine table is wide."""
+
+    response = client.post(
+        "/api/v1/machines", json={"id_klient": 7, "markaa": "KONICA"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "markaa"]
+
+
+def test_create_machine_rejects_over_long_text_and_bad_dates(
+    client: TestClient,
+) -> None:
+    assert (
+        client.post(
+            "/api/v1/machines", json={"id_klient": 7, "marka": "x" * 101}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/machines", json={"id_klient": 7, "aktywna": "TAK!"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/machines", json={"id_klient": 7, "instalacja": "not-a-date"}
+        ).status_code
+        == 422
+    )
+
+
+def test_create_machine_requires_api_key() -> None:
+    settings = make_settings(api_key="secret")
+    app = create_app(settings, service=FakeService())
+    with TestClient(app) as client:
+        assert client.post("/api/v1/machines", json={"id_klient": 7}).status_code == 401
+        allowed = client.post(
+            "/api/v1/machines",
+            json={"id_klient": 7},
+            headers={"X-API-Key": "secret"},
+        )
+        assert allowed.status_code == 201
+
+
+def test_create_machine_reports_disabled_writes_as_403() -> None:
+    class ReadOnlyService(FakeService):
+        def create_machine(self, values: Any) -> dict[str, object]:
+            raise WritesDisabled("Writes are disabled")
+
+    app = create_app(make_settings(), service=ReadOnlyService())
+    with TestClient(app) as client:
+        response = client.post("/api/v1/machines", json={"id_klient": 7})
 
     assert response.status_code == 403
     assert response.json() == {

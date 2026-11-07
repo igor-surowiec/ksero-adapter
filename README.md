@@ -4,10 +4,10 @@ HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.
 `WIN1250` data).
 
 Every request runs a single SQL statement with quoted identifiers, bound
-parameters and a capped row count. Reads never modify anything; the only write is
-the curated `POST /clients` insert, and it stays off unless `api.allow_writes` is
-enabled. Interactive docs are served at `/docs`, the developer reference lives in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+parameters and a capped row count. Reads never modify anything; the only writes
+are the curated `POST /clients` and `POST /machines` inserts, and they stay off
+unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
+the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -35,7 +35,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /machines`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -55,9 +55,10 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/tables/{table}` | columns with readable SQL types |
 | `GET` | `/tables/{table}/rows` | page of rows, sorting, JSON filters |
 | `GET` | `/clients` | contractors (`KLIENT`) |
-| `POST` | `/clients` | create a contractor (`KLIENT`), only `nazwa` required |
+| `POST` | `/clients` | create a contractor (`KLIENT`), `nazwa` plus optional fields |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
+| `POST` | `/machines` | create a machine (`MASZYNA`), only `id_klient` required |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 | `POST` | `/schema/refresh` | drop and reload the schema cache |
@@ -78,20 +79,44 @@ Only the envelope keys (`total`, `count`, `limit`, `offset`, `clients`,
 Every response field is documented in the OpenAPI schema (`/docs` or
 `/openapi.json`).
 
-`POST /clients` is the only writing route: it takes `{"nazwa": "..."}`, inserts one
-`KLIENT` row and returns it with `201`. The database fills in the rest - the
-`INS_KLIENT_RECORD` trigger assigns `ID_KLIENT_TABLE`, `ID_KLIENT` and `ID_FIRMA`,
-`ID_ODDZIAL` falls back to `1`, and every other column stays null - so `nazwa`
-(`NAZWA`, trimmed, at most 500 characters) is the only value you have to send. It
-uses the same `X-API-Key` as the read routes and answers `403` unless
-`api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
+`POST /clients` and `POST /machines` are the only writing routes: both return
+the stored row with `201`, use the same `X-API-Key` as the read routes and
+answer `403` unless `api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
+
+`POST /clients` takes the lower-cased column names of the `GET /clients`
+projection (`nazwa`, `nip`, `regon`, `adres`, `kod`, `poczta`, `telefon`,
+`e_mail`, `www`, `typ`, `platnosc`, `termin`, `rabat`, ...) and inserts one
+`KLIENT` row; `nazwa` (`NAZWA`, trimmed, at most 500 characters) is the only
+value you have to send. Strings are trimmed, every text value is checked against
+its column width, and an unknown field name answers `422` instead of being
+dropped silently.
+
+Every column you leave out is filled with the values the legacy application
+writes into a new contractor (`CLIENT_INSERT_DEFAULTS`: `ID_FIRMA` `0`, `TYP`
+`Odbiorca`, `PLATNOSC` `Gotówka`, `KOD_KRAJU` `PL`, `IDW` `-1`, empty strings
+instead of `NULL`, zeroed flags). That profile is what makes the row show up in
+that program: its contractor list is filtered by `ID_FIRMA`, and a row that
+keeps the trigger fallback of `1` (or plain `NULL`s) never appears there. The
+generated keys still come from `INS_KLIENT_RECORD`, and `ID_ODDZIAL` keeps its
+column default of `1`.
+
+`POST /machines` takes the lower-cased column names of the `GET /machines`
+projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
+one `MASZYNA` row; `id_klient` is the only required value, because
+`INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA` while
+`ID_ODDZIAL` and `ID_FIRMA` fall back to their column defaults. Omitted, `null`
+and blank fields are not inserted at all, strings are trimmed, and an unknown
+field name answers `422` instead of being dropped silently. Columns the
+application derives from other data (`licznik_total`, `last_m`, `last_w`,
+`next_w`, `koszty`, `przychody`, `wynik`, `synwp`) cannot be written.
 
 ```bash
 curl 'http://127.0.0.1:8000/api/v1/tables/KLIENCI/rows?limit=25&order_by=NAZWA%20ASC&filters={"TYP":1}'
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
 curl 'http://127.0.0.1:8000/api/v1/invoices?limit=20&search=2026'
 curl -X POST http://127.0.0.1:8000/api/v1/query -H 'Content-Type: application/json' -d '{"sql": "SELECT ID, NAZWA FROM KLIENCI WHERE ID > ? ORDER BY ID", "limit": 10, "parameters": [100]}'
-curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"nazwa": "ACME Sp. z o.o."}'
+curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"nazwa": "ACME Sp. z o.o.", "nip": "1234567890", "poczta": "Warszawa"}'
+curl -X POST http://127.0.0.1:8000/api/v1/machines -H 'Content-Type: application/json' -d '{"id_klient": 42, "marka": "KONICA", "model": "C224", "serial": "SN-0001", "instalacja": "2026-01-02"}'
 ```
 
 `filters` is a JSON object whose values are either a literal (means `eq`) or an

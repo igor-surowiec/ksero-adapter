@@ -26,11 +26,12 @@ HTTP access to a Firebird database.
 * **Rows** - paginated access with ordering and JSON based filters.
 * **Query** - run your own single read-only `SELECT`/`WITH` statement.
 * **Clients** - create a contractor (opt-in via `api.allow_writes`).
+* **Machines** - create a machine of a contractor (opt-in as well).
 
 Identifiers are quoted and values are always bound parameters. Read requests can
-never modify the database; the only writing statement is the curated `INSERT`
-behind `POST /clients`, which is rejected with `403` unless `api.allow_writes`
-is enabled.
+never modify the database; the only writing statements are the curated `INSERT`s
+behind `POST /clients` and `POST /machines`, and both are rejected with `403`
+unless `api.allow_writes` is enabled.
 """
 
 

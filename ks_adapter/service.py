@@ -1,14 +1,15 @@
-"""Business logic for reading tables and for the curated client insert.
+"""Business logic for the curated reads and for the curated inserts.
 
-Every read path builds a single ``SELECT``/``WITH`` statement;
-:meth:`DatabaseService.create_client` is the only method that writes.
+Every read path builds a single ``SELECT``/``WITH`` statement; the only methods
+that write are :meth:`DatabaseService.create_client` and
+:meth:`DatabaseService.create_machine`, both gated by ``api.allow_writes``.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .config import AppSettings
 from .errors import ColumnNotFound, DatabaseUnavailable, InvalidRequest, WritesDisabled
@@ -69,6 +70,112 @@ CLIENT_SEARCH_COLUMNS: tuple[str, ...] = (
 #: Width of ``KLIENT.NAZWA``.  Longer names are rejected up front, otherwise
 #: Firebird answers with a string-truncation error instead of a clear message.
 CLIENT_NAME_MAX_LENGTH = 500
+
+#: Columns ``POST /clients`` accepts, in the order they are inserted.  Every one
+#: of them belongs to :data:`CLIENT_COLUMNS`, so the created row is served
+#: exactly as ``GET /clients`` would return it, and ``NAZWA`` is the only value
+#: the caller has to supply.  The keys stay out of reach (``ID_KLIENT_TABLE`` and
+#: ``ID_KLIENT`` come from their generators, ``ID_FIRMA`` is one of the
+#: :data:`CLIENT_INSERT_DEFAULTS`) and so does ``OSTATNIO``, which the
+#: application maintains itself.
+CLIENT_WRITE_COLUMNS: tuple[str, ...] = (
+    "NAZWA",
+    "NAZWA_S",
+    "NIP",
+    "REGON",
+    "ADRES",
+    "KOD",
+    "POCZTA",
+    "WOJEWODZTWO",
+    "TELEFON",
+    "E_MAIL",
+    "WWW",
+    "TYP",
+    "AKTYWNY",
+    "PLATNOSC",
+    "TERMIN",
+    "RABAT",
+)
+
+#: Widths of the ``KLIENT`` text columns.  Longer values are rejected up front,
+#: otherwise Firebird answers with a string-truncation error instead of a clear
+#: message.  The ``POST /clients`` payload model reuses this mapping, so every
+#: limit is declared in one place.
+CLIENT_TEXT_LENGTHS: dict[str, int] = {
+    "NAZWA": CLIENT_NAME_MAX_LENGTH,
+    "NAZWA_S": 50,
+    "NIP": 20,
+    "REGON": 30,
+    "ADRES": 250,
+    "KOD": 6,
+    "POCZTA": 150,
+    "TELEFON": 100,
+    "E_MAIL": 200,
+    "WWW": 200,
+    "TYP": 50,
+    "AKTYWNY": 3,
+    "PLATNOSC": 50,
+}
+
+#: The values the legacy application itself writes into a new ``KLIENT`` row.
+#: They are read off the clients that program created: every one of them carries
+#: these exact values, while a row that lets Firebird fill the columns with
+#: ``NULL`` (and ``ID_FIRMA`` with the ``INS_KLIENT_RECORD`` fallback of ``1``)
+#: never shows up in the program.  ``POST /clients`` therefore inserts them for
+#: every column the caller did not supply, which keeps a bridged client
+#: indistinguishable from a hand-entered one.
+#:
+#: ``ID_FIRMA`` is the important one: the program works with ``0`` even though
+#: ``FIRMA`` holds ``1``, and it filters its client list by that number.
+#: ``OSTATNIO`` (activity stamp) and ``GUSDATA`` (version date of the GUS data
+#: the program ships) are deliberately absent - the first is the program's own
+#: clock, the second a build constant, and neither decides whether a client is
+#: listed.
+CLIENT_INSERT_DEFAULTS: dict[str, Any] = {
+    "ID_FIRMA": 0,
+    "ID_ODBIORCA": 0,
+    "ID_GRUPACEN": 0,
+    "ID_US": 0,
+    "ODDZIAL": 0,
+    "NAZWA_S": "",
+    "ADRES": "",
+    "KOD": "",
+    "POCZTA": "",
+    "IDW": -1,
+    "POWIAT": "",
+    "GMINA": "",
+    "NIP": "",
+    "KOD_KRAJU": "PL",
+    "REGON": "",
+    "TELEFON": "",
+    "WWW": "",
+    "E_MAIL": "",
+    "E_FAKTURA": "",
+    "SENDXML": 0,
+    "NAFRE": 0,
+    "KONTAKT": "",
+    "KLIENT": "",
+    "BANK": "",
+    "KONTO": "",
+    "TYP": "Odbiorca",
+    "RODZAJ": 0,
+    "INNE": "",
+    "UWAGI": "",
+    "RABAT": 0,
+    "PLATNOSC": "Gotówka",
+    "TERMIN": 0,
+    "ROBOCIZNA": 0,
+    "DOJAZDY": 0,
+    "POZIOM": 0,
+    "STATUS": 0,
+    "OSTZAPIS": 0,
+    "SYNDEV": 0,
+    "SYNTAS": 0,
+    "SYNCHA": 0,
+    "AKTYWNY": "",
+    "KTO": "",
+    "ALIEN_CODE": "",
+}
 
 #: Table holding service agreements (contracts) in the BAZAMS schema.
 AGREEMENTS_TABLE = "UMOWACPC"
@@ -176,6 +283,70 @@ MACHINE_SEARCH_COLUMNS: tuple[str, ...] = (
     "MIEJSCOWOSC",
     "TECHNIK",
 )
+
+#: Columns ``POST /machines`` accepts, in the order they are inserted.  Every
+#: one of them is part of :data:`MACHINE_COLUMNS` as well, so the created row is
+#: served exactly as ``GET /machines`` would return it.  The columns the
+#: application derives from other data stay out of reach: ``LICZNIK_TOTAL`` (the
+#: lifetime counter), ``LAST_M``/``LAST_W``/``NEXT_W`` (meter readings and
+#: service orders), the ``KOSZTY``/``PRZYCHODY``/``WYNIK`` aggregates and the
+#: ``SYNWP`` synchronisation flag.
+MACHINE_WRITE_COLUMNS: tuple[str, ...] = (
+    "ID_KLIENT",
+    "ID_ODDZIAL",
+    "ID_FIRMA",
+    "ID_MODEL",
+    "ID_UMOWACPC",
+    "MARKA",
+    "MODEL",
+    "GRUPA",
+    "TYP",
+    "RODZAJ_US",
+    "SERIAL",
+    "SERIAL2",
+    "EWIDENCJA",
+    "STOI",
+    "ADRES",
+    "MIEJSCOWOSC",
+    "EMAIL",
+    "TECHNIK",
+    "INSTALACJA",
+    "GWARANCJA",
+    "GWARANCJA_DO",
+    "LICZNIK",
+    "LICZNIKA3",
+    "PRZEGLADY",
+    "KONSERWACJA",
+    "OPLATA",
+    "UWAGI",
+    "ZALECENIA",
+    "AKTYWNA",
+    "KOLOROWA",
+)
+
+#: Widths of the ``MASZYNA`` text columns.  Longer values are rejected up front,
+#: otherwise Firebird answers with a string-truncation error instead of a clear
+#: message.  The ``POST /machines`` payload model reuses this mapping, so every
+#: limit is declared in one place.
+MACHINE_TEXT_LENGTHS: dict[str, int] = {
+    "MARKA": 100,
+    "MODEL": 100,
+    "GRUPA": 50,
+    "TYP": 50,
+    "RODZAJ_US": 50,
+    "SERIAL": 100,
+    "SERIAL2": 200,
+    "EWIDENCJA": 100,
+    "STOI": 1000,
+    "ADRES": 250,
+    "MIEJSCOWOSC": 150,
+    "EMAIL": 150,
+    "TECHNIK": 100,
+    "UWAGI": 2000,
+    "ZALECENIA": 2000,
+    "AKTYWNA": 3,
+    "KOLOROWA": 3,
+}
 
 #: Table holding service orders (jobs) in the BAZAMS schema.
 ORDERS_TABLE = "ZLECENIE"
@@ -371,8 +542,28 @@ INVOICE_SEARCH_COLUMNS: tuple[str, ...] = (
 )
 
 
+def _insert_plan(
+    prepared: Mapping[str, Any],
+    defaults: Mapping[str, Any],
+    column_map: Mapping[str, Any],
+) -> tuple[list[str], list[Any]]:
+    """Merge a prepared write payload with the legacy default profile.
+
+    The caller's columns come first, in the order
+    :meth:`DatabaseService._prepared_insert_values` produced them, followed by
+    the default columns the payload did not touch.  Columns the connected
+    database does not have are dropped, so a snapshot of an older catalog still
+    produces a valid statement.  Returns the column names and the matching
+    parameter values, both in statement order.
+    """
+    merged = {**defaults, **prepared}
+    ordered = dict.fromkeys((*prepared, *defaults))
+    columns = [column for column in ordered if column in column_map]
+    return columns, [merged[column] for column in columns]
+
+
 class DatabaseService:
-    """Facade over a Firebird database: read models plus one curated write."""
+    """Facade over a Firebird database: read models plus the curated writes."""
 
     def __init__(
         self, settings: AppSettings, pool: ConnectionPool | None = None
@@ -734,17 +925,21 @@ class DatabaseService:
         }
 
     # -- writes -----------------------------------------------------------
-    def create_client(self, *, nazwa: str) -> dict[str, Any]:
+    def create_client(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Insert a contractor into ``KLIENT`` and return the stored row.
 
-        ``NAZWA`` is the only value the caller supplies: the ``BEFORE INSERT``
-        trigger ``INS_KLIENT_RECORD`` fills the mandatory ``ID_KLIENT_TABLE`` and
-        ``ID_KLIENT`` from their generators and ``ID_FIRMA`` with its constant,
-        and ``ID_ODDZIAL`` falls back to its column default, so a single-column
-        ``INSERT`` satisfies every NOT NULL constraint.  ``RETURNING`` hands the
-        generated keys back inside the same transaction and the response is the
-        same projection ``GET /clients`` serves, keyed by the lower-cased column
-        names.
+        ``values`` is keyed by the lower-cased column names of the curated
+        projection (``{"nazwa": "ACME", "nip": "1234567890"}``); only the fields
+        of :data:`CLIENT_WRITE_COLUMNS` are accepted and ``NAZWA`` is the single
+        mandatory value.  Every column the caller leaves out is filled with the
+        values :data:`CLIENT_INSERT_DEFAULTS` records from the legacy
+        application, because a row that keeps the Firebird defaults is invisible
+        to that program.  The ``BEFORE INSERT`` trigger ``INS_KLIENT_RECORD``
+        fills ``ID_KLIENT_TABLE`` and ``ID_KLIENT`` from their generators and
+        ``ID_ODDZIAL`` falls back to its column default, so every NOT NULL
+        constraint is satisfied.  ``RETURNING`` hands the generated keys back
+        inside the same transaction and the response is the same projection
+        ``GET /clients`` serves, keyed by the lower-cased column names.
 
         Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
         """
@@ -752,35 +947,95 @@ class DatabaseService:
             raise WritesDisabled(
                 "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
             )
-        value = nazwa.strip() if isinstance(nazwa, str) else ""
-        if not value:
+        prepared = self._prepared_insert_values(
+            values, CLIENT_WRITE_COLUMNS, CLIENT_TEXT_LENGTHS
+        )
+        if "NAZWA" not in prepared:
             raise InvalidRequest("'nazwa' must not be empty")
-        if len(value) > CLIENT_NAME_MAX_LENGTH:
-            raise InvalidRequest(
-                f"'nazwa' must not be longer than {CLIENT_NAME_MAX_LENGTH} characters"
-            )
 
         info = self.schema.get(CLIENTS_TABLE)
-        selected = [
-            column for column in CLIENT_COLUMNS if column.upper() in info.column_map
-        ]
-        if "NAZWA" not in selected:
+        if "NAZWA" not in info.column_map:
             raise InvalidRequest(
                 f"Table '{info.name}' does not contain the expected client columns"
             )
-        statement = build_insert(info.name, ["NAZWA"], returning=selected)
+        columns, params = _insert_plan(
+            prepared, CLIENT_INSERT_DEFAULTS, info.column_map
+        )
+        selected = [
+            column for column in CLIENT_COLUMNS if column in info.column_map
+        ]
+        statement = build_insert(info.name, columns, returning=selected)
 
         with self.pool.write_session() as connection:
             cursor = connection.cursor()
             try:
-                cursor.execute(statement, [value])
+                cursor.execute(statement, params)
                 raw_row = cursor.fetchone()
             finally:
                 cursor.close()
 
+        return self._returned_row(info.name, selected, raw_row)
+
+    def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        """Insert a machine into ``MASZYNA`` and return the stored row.
+
+        ``values`` is keyed by the lower-cased column names of the curated
+        projection (``{"id_klient": 7, "marka": "KONICA"}``); only the fields of
+        :data:`MACHINE_WRITE_COLUMNS` are accepted and only the ones the caller
+        supplies are inserted.  ``ID_KLIENT`` is the mandatory value: the
+        ``BEFORE INSERT`` trigger ``INS_MASZYNA_RECORD`` fills
+        ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators,
+        ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults
+        and ``SYNWP`` stays untouched, so nothing is queued for synchronisation.
+        ``RETURNING`` hands the generated keys back inside the same transaction
+        and the response is the projection ``GET /machines`` serves.
+
+        Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
+        """
+        if not self.settings.api.allow_writes:
+            raise WritesDisabled(
+                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
+            )
+        prepared = self._prepared_insert_values(
+            values, MACHINE_WRITE_COLUMNS, MACHINE_TEXT_LENGTHS
+        )
+        owner = prepared.get("ID_KLIENT")
+        if not isinstance(owner, int) or isinstance(owner, bool) or owner < 1:
+            raise InvalidRequest("'id_klient' must be a positive integer")
+
+        info = self.schema.get(MACHINES_TABLE)
+        if "ID_KLIENT" not in info.column_map:
+            raise InvalidRequest(
+                f"Table '{info.name}' does not contain the expected machine columns"
+            )
+        columns = [
+            column
+            for column in MACHINE_WRITE_COLUMNS
+            if column in prepared and column in info.column_map
+        ]
+        selected = [
+            column for column in MACHINE_COLUMNS if column in info.column_map
+        ]
+        statement = build_insert(info.name, columns, returning=selected)
+
+        with self.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(statement, [prepared[column] for column in columns])
+                raw_row = cursor.fetchone()
+            finally:
+                cursor.close()
+
+        return self._returned_row(info.name, selected, raw_row)
+
+    # -- helpers ----------------------------------------------------------
+    def _returned_row(
+        self, table: str, selected: Sequence[str], raw_row: Any
+    ) -> dict[str, Any]:
+        """Map the ``RETURNING`` tuple of an insert to the response dict."""
         if raw_row is None:  # pragma: no cover - RETURNING always yields a row
             raise DatabaseUnavailable(
-                f"Firebird did not return the row inserted into '{info.name}'"
+                f"Firebird did not return the row inserted into '{table}'"
             )
         return {
             column.lower(): to_jsonable(
@@ -791,7 +1046,50 @@ class DatabaseService:
             for column, cell in zip(selected, raw_row)
         }
 
-    # -- helpers ----------------------------------------------------------
+    @staticmethod
+    def _prepared_insert_values(
+        values: Mapping[str, Any],
+        allowed: Sequence[str],
+        lengths: Mapping[str, int],
+    ) -> dict[str, Any]:
+        """Validate and normalise the fields of a curated write payload.
+
+        Keys are matched case-insensitively against ``allowed``, strings are
+        trimmed and a blank string counts as "not supplied", so the calling write
+        falls back to its own default for that column (the legacy profile of
+        :data:`CLIENT_INSERT_DEFAULTS`, or the database default).  The result
+        follows the order of ``allowed``, which keeps the generated statement
+        stable, and a field outside that list is refused instead of being dropped
+        silently.
+        """
+        if not isinstance(values, Mapping):
+            raise InvalidRequest("Fields must be a JSON object")
+
+        supplied: dict[str, Any] = {}
+        for key, value in values.items():
+            column = str(key).strip().upper()
+            if column not in allowed:
+                raise InvalidRequest(f"Unknown field '{key}'")
+            supplied[column] = value
+
+        prepared: dict[str, Any] = {}
+        for column in allowed:
+            value = supplied.get(column)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = value.strip()
+                maximum = lengths.get(column)
+                if maximum is not None and len(value) > maximum:
+                    raise InvalidRequest(
+                        f"'{column.lower()}' must not be longer than "
+                        f"{maximum} characters"
+                    )
+                if not value:
+                    continue
+            prepared[column] = value
+        return prepared
+
     def check_limit(
         self, limit: int | None, *, maximum: int | None = None, default: int | None = None
     ) -> int:
