@@ -124,22 +124,22 @@ class FakeService:
             "offset": offset,
             "clients": [
                 {
-                    "id": offset + 1,
-                    "client_id": offset + 1,
-                    "name": "ACME",
+                    "id_klient_table": offset + 1,
+                    "id_klient": offset + 1,
+                    "nazwa": "ACME",
                     "nip": "1234567890",
                 }
             ],
         }
 
-    def create_client(self, *, name: str) -> dict[str, Any]:
-        self.calls.append({"action": "create_client", "name": name})
+    def create_client(self, *, nazwa: str) -> dict[str, Any]:
+        self.calls.append({"action": "create_client", "nazwa": nazwa})
         return {
-            "id": 1001,
-            "client_id": 42,
-            "name": name,
+            "id_klient_table": 1001,
+            "id_klient": 42,
+            "nazwa": nazwa,
             "nip": None,
-            "last_contact": None,
+            "ostatnio": None,
         }
 
     def fetch_agreements(
@@ -164,10 +164,10 @@ class FakeService:
             "offset": offset,
             "agreements": [
                 {
-                    "id": offset + 1,
-                    "agreement_id": offset + 1,
-                    "number": "CPC/2024/001",
-                    "client_id": 7,
+                    "id_umowacpc_table": offset + 1,
+                    "id_umowacpc": offset + 1,
+                    "umowa": "CPC/2024/001",
+                    "id_klient": 7,
                 }
             ],
         }
@@ -194,11 +194,11 @@ class FakeService:
             "offset": offset,
             "machines": [
                 {
-                    "id": offset + 1,
-                    "machine_id": offset + 1,
-                    "brand": "KONICA",
+                    "id_maszyna_table": offset + 1,
+                    "id_maszyna": offset + 1,
+                    "marka": "KONICA",
                     "serial": "SN-0001",
-                    "client_id": 7,
+                    "id_klient": 7,
                 }
             ],
         }
@@ -225,11 +225,11 @@ class FakeService:
             "offset": offset,
             "orders": [
                 {
-                    "id": offset + 1,
-                    "order_id": offset + 1,
-                    "client_name": "ACME",
-                    "status": "O",
-                    "client_id": 7,
+                    "id_zlecenie_table": offset + 1,
+                    "id_zlecenie": offset + 1,
+                    "nazwa": "ACME",
+                    "stan": "O",
+                    "id_klient": 7,
                 }
             ],
         }
@@ -256,11 +256,11 @@ class FakeService:
             "offset": offset,
             "invoices": [
                 {
-                    "id": offset + 1,
-                    "number": "FV/2026/11/001",
-                    "client_name": "ACME",
-                    "gross": 1230.0,
-                    "client_id": 7,
+                    "id_faktura_table": offset + 1,
+                    "numer": "FV/2026/11/001",
+                    "nazwa": "ACME",
+                    "suma_brutto": 1230.0,
+                    "id_klient": 7,
                 }
             ],
         }

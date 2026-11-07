@@ -87,21 +87,22 @@ response ◄──────────────────────�
 
 1. `api.list_machines` — API key check, `limit ≤ api.max_limit`, `search ≤ 100` chars.
 2. `service.fetch_machines` → `check_limit()` → `_projection_page(MACHINES_TABLE,
-   MACHINE_FIELDS, MACHINE_SEARCH_COLUMNS, limit=..., offset=...,
+   MACHINE_COLUMNS, MACHINE_SEARCH_COLUMNS, limit=..., offset=...,
    order_columns=("ID_MASZYNA", "ID_MASZYNA_TABLE"), label="machine")`.
 3. `_projection_page` — `SchemaCache.get("MASZYNA")`, `sql.build_search()` over the
    searchable columns that actually exist, then `COUNT(*)` and the page query
    (`ROWS 6 TO 10`) on the **same** connection.
-4. Rows → JSON-safe values → aliased (`MARKA` → `brand`, ...) → `MachinePage` → JSON.
+4. Rows → JSON-safe values → keyed by the lower-cased column name (`MARKA` → `marka`,
+   ...) → `MachinePage` → JSON.
 
 Variations:
 
-- `/orders` is the same call with `ORDER_FIELDS`/`ORDER_SEARCH_COLUMNS`; `ZLECENIE` is
+- `/orders` is the same call with `ORDER_COLUMNS`/`ORDER_SEARCH_COLUMNS`; `ZLECENIE` is
   the widest table of the schema, so both lists are size-bounded (Firebird rejects a
   statement message wider than 64 KB with `-204 Implementation limit exceeded`, which
   `SELECT *` on a very wide table or a `LIKE` over every text column would eventually
   hit — see `sql.MAX_SEARCH_COLUMNS`).
-- `/invoices` is the same call with `INVOICE_FIELDS`/`INVOICE_SEARCH_COLUMNS` over
+- `/invoices` is the same call with `INVOICE_COLUMNS`/`INVOICE_SEARCH_COLUMNS` over
   `FAKTURA`. That table is the invoice **header**: the positions live in `FPOZYCJA`
   and are not exposed, and the per-VAT-rate matrix, the pre-correction block, the
   `F_*` marker flags and the synchronisation bookkeeping columns are left out of the
@@ -228,30 +229,33 @@ pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `create_client()`, `run_query()`, plus the helpers `check_limit()`, `_order_clause()`,
 `_projection_page()`, `_default_order_clause()` and `_check_parameters()`. Module
 constants define the curated read models:
-`CLIENTS_TABLE`/`CLIENT_FIELDS` + `CLIENT_SEARCH_COLUMNS`,
-`AGREEMENTS_TABLE`/`AGREEMENT_FIELDS` + `AGREEMENT_SEARCH_COLUMNS`,
-`MACHINES_TABLE`/`MACHINE_FIELDS` + `MACHINE_SEARCH_COLUMNS`,
-`ORDERS_TABLE`/`ORDER_FIELDS` + `ORDER_SEARCH_COLUMNS`,
-`INVOICES_TABLE`/`INVOICE_FIELDS` + `INVOICE_SEARCH_COLUMNS`. Each is a small hand-picked
+`CLIENTS_TABLE`/`CLIENT_COLUMNS` + `CLIENT_SEARCH_COLUMNS`,
+`AGREEMENTS_TABLE`/`AGREEMENT_COLUMNS` + `AGREEMENT_SEARCH_COLUMNS`,
+`MACHINES_TABLE`/`MACHINE_COLUMNS` + `MACHINE_SEARCH_COLUMNS`,
+`ORDERS_TABLE`/`ORDER_COLUMNS` + `ORDER_SEARCH_COLUMNS`,
+`INVOICES_TABLE`/`INVOICE_COLUMNS` + `INVOICE_SEARCH_COLUMNS`. Each is a small hand-picked
 subset of the table's columns, which keeps the endpoint stable even though the underlying
-tables are very wide. `_projection_page()` is the shared implementation of `/clients`,
-`/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page query on
-one connection, columns missing from the connected database silently skipped.
+tables are very wide, and each row is keyed by the lower-cased column name, so there is no
+alias table to keep in sync. `_projection_page()` is the shared implementation of
+`/clients`, `/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page
+query on one connection, columns missing from the connected database silently skipped.
 
 `create_client()` is the only writing method: it refuses with `WritesDisabled` unless
 `api.allow_writes` is set, trims and validates the name (`CLIENT_NAME_MAX_LENGTH` mirrors
 the width of `NAZWA`), inserts a single column through `sql.build_insert()` with a
-`RETURNING` list built from `CLIENT_FIELDS`, and executes it inside
+`RETURNING` list built from `CLIENT_COLUMNS`, and executes it inside
 `pool.write_session()` so the row is committed or the transaction rolled back.
 
 **`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
 `HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
-`ClientCreate` (the `POST /clients` body: a single `name`),
+`ClientCreate` (the `POST /clients` body: a single `nazwa`),
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection
 fields are all optional, so a missing column never breaks validation, and money columns
-use `DecimalValue = float | str`.
+use `DecimalValue = float | str`. Every projection field is named after its column,
+lower-cased (`nazwa`, `id_klient`, `suma_brutto`, ...), which is also the JSON key the
+client sees.
 
 ### Repository files
 
@@ -309,10 +313,10 @@ another database needs no code change.
    (raise `errors.WritesDisabled` → `403`), build its statement with
    `sql.build_insert()`, run it inside `pool.write_session()` only, and be covered by a
    `KS_TEST_DB_WRITABLE=1` integration test that cleans up after itself.
-2. **New field on a projection** — add the `(column, alias)` pair to the matching
-   `*_FIELDS` constant (plus `*_SEARCH_COLUMNS` if it must be searchable) and the optional
-   field in the Pydantic model; response details live in the OpenAPI schema, so `README.md`
-   only changes when the endpoint description does.
+2. **New field on a projection** — add the column name to the matching `*_COLUMNS`
+   constant (plus `*_SEARCH_COLUMNS` if it must be searchable) and the optional field to
+   the Pydantic model, named after the column in lower case; response details live in the
+   OpenAPI schema, so `README.md` only changes when the endpoint description does.
 3. **New setting** — `config.py` (`_ALLOWED_KEYS`, `_ENV_OVERRIDES`, dataclass field,
    `_build_settings`), `config/config.yaml`, plus the `README.md` environment table when the
    variable should be public.

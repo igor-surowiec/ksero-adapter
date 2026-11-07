@@ -160,8 +160,8 @@ def test_clients_endpoint(client: TestClient, fake_service: FakeService) -> None
     assert body["count"] == 1
     assert body["limit"] == 10
     assert body["offset"] == 5
-    assert body["clients"][0]["name"] == "ACME"
-    assert body["clients"][0]["id"] == 6
+    assert body["clients"][0]["nazwa"] == "ACME"
+    assert body["clients"][0]["id_klient_table"] == 6
     assert fake_service.calls[-1] == {
         "action": "fetch_clients",
         "limit": 10,
@@ -209,8 +209,8 @@ def test_agreements_endpoint(client: TestClient, fake_service: FakeService) -> N
     assert body["count"] == 1
     assert body["limit"] == 10
     assert body["offset"] == 5
-    assert body["agreements"][0]["number"] == "CPC/2024/001"
-    assert body["agreements"][0]["id"] == 6
+    assert body["agreements"][0]["umowa"] == "CPC/2024/001"
+    assert body["agreements"][0]["id_umowacpc_table"] == 6
     assert fake_service.calls[-1] == {
         "action": "fetch_agreements",
         "limit": 10,
@@ -260,7 +260,9 @@ def test_agreements_accepts_decimal_strings(
             "count": 1,
             "limit": 50,
             "offset": 0,
-            "agreements": [{"id": 1, "costs": "1500.5000", "revenue": 10.5}],
+            "agreements": [
+                {"id_umowacpc_table": 1, "koszty": "1500.5000", "przychody": 10.5}
+            ],
         }
 
     fake_service.fetch_agreements = fake_fetch  # type: ignore[method-assign]
@@ -269,9 +271,9 @@ def test_agreements_accepts_decimal_strings(
 
     assert response.status_code == 200
     agreement = response.json()["agreements"][0]
-    assert agreement["costs"] == "1500.5000"
-    assert agreement["revenue"] == 10.5
-    assert agreement["number"] is None
+    assert agreement["koszty"] == "1500.5000"
+    assert agreement["przychody"] == 10.5
+    assert agreement["umowa"] is None
 
 
 def test_machines_endpoint(client: TestClient, fake_service: FakeService) -> None:
@@ -284,8 +286,8 @@ def test_machines_endpoint(client: TestClient, fake_service: FakeService) -> Non
     assert body["count"] == 1
     assert body["limit"] == 10
     assert body["offset"] == 5
-    assert body["machines"][0]["brand"] == "KONICA"
-    assert body["machines"][0]["id"] == 6
+    assert body["machines"][0]["marka"] == "KONICA"
+    assert body["machines"][0]["id_maszyna_table"] == 6
     assert fake_service.calls[-1] == {
         "action": "fetch_machines",
         "limit": 10,
@@ -334,7 +336,7 @@ def test_machines_accepts_decimal_strings(
             "count": 1,
             "limit": 50,
             "offset": 0,
-            "machines": [{"id": 1, "fee": "0.1200", "costs": 30.5}],
+            "machines": [{"id_maszyna_table": 1, "oplata": "0.1200", "koszty": 30.5}],
         }
 
     fake_service.fetch_machines = fake_fetch  # type: ignore[method-assign]
@@ -343,9 +345,9 @@ def test_machines_accepts_decimal_strings(
 
     assert response.status_code == 200
     machine = response.json()["machines"][0]
-    assert machine["fee"] == "0.1200"
-    assert machine["costs"] == 30.5
-    assert machine["brand"] is None
+    assert machine["oplata"] == "0.1200"
+    assert machine["koszty"] == 30.5
+    assert machine["marka"] is None
 
 
 def test_orders_endpoint(client: TestClient, fake_service: FakeService) -> None:
@@ -358,8 +360,8 @@ def test_orders_endpoint(client: TestClient, fake_service: FakeService) -> None:
     assert body["count"] == 1
     assert body["limit"] == 10
     assert body["offset"] == 5
-    assert body["orders"][0]["client_name"] == "ACME"
-    assert body["orders"][0]["id"] == 6
+    assert body["orders"][0]["nazwa"] == "ACME"
+    assert body["orders"][0]["id_zlecenie_table"] == 6
     assert fake_service.calls[-1] == {
         "action": "fetch_orders",
         "limit": 10,
@@ -408,7 +410,7 @@ def test_orders_accepts_decimal_strings(
             "count": 1,
             "limit": 50,
             "offset": 0,
-            "orders": [{"id": 1, "gross": "120.5000", "labour": 10.5}],
+            "orders": [{"id_zlecenie_table": 1, "brutto": "120.5000", "robocizna": 10.5}],
         }
 
     fake_service.fetch_orders = fake_fetch  # type: ignore[method-assign]
@@ -417,9 +419,9 @@ def test_orders_accepts_decimal_strings(
 
     assert response.status_code == 200
     order = response.json()["orders"][0]
-    assert order["gross"] == "120.5000"
-    assert order["labour"] == 10.5
-    assert order["client_name"] is None
+    assert order["brutto"] == "120.5000"
+    assert order["robocizna"] == 10.5
+    assert order["nazwa"] is None
 
 
 def test_invoices_endpoint(client: TestClient, fake_service: FakeService) -> None:
@@ -432,8 +434,8 @@ def test_invoices_endpoint(client: TestClient, fake_service: FakeService) -> Non
     assert body["count"] == 1
     assert body["limit"] == 10
     assert body["offset"] == 5
-    assert body["invoices"][0]["number"] == "FV/2026/11/001"
-    assert body["invoices"][0]["id"] == 6
+    assert body["invoices"][0]["numer"] == "FV/2026/11/001"
+    assert body["invoices"][0]["id_faktura_table"] == 6
     assert fake_service.calls[-1] == {
         "action": "fetch_invoices",
         "limit": 10,
@@ -484,7 +486,9 @@ def test_invoices_accepts_decimal_strings(
             "count": 1,
             "limit": 50,
             "offset": 0,
-            "invoices": [{"id": 1, "gross": "1230.0000", "amount_due": 0.0}],
+            "invoices": [
+                {"id_faktura_table": 1, "suma_brutto": "1230.0000", "do_zaplaty": 0.0}
+            ],
         }
 
     fake_service.fetch_invoices = fake_fetch  # type: ignore[method-assign]
@@ -493,33 +497,34 @@ def test_invoices_accepts_decimal_strings(
 
     assert response.status_code == 200
     invoice = response.json()["invoices"][0]
-    assert invoice["gross"] == "1230.0000"
-    assert invoice["amount_due"] == 0.0
-    assert invoice["number"] is None
+    assert invoice["suma_brutto"] == "1230.0000"
+    assert invoice["do_zaplaty"] == 0.0
+    assert invoice["numer"] is None
 
 
 
 def test_create_client_returns_the_stored_row(
     client: TestClient, fake_service: FakeService
 ) -> None:
-    response = client.post("/api/v1/clients", json={"name": "ACME Sp. z o.o."})
+    response = client.post("/api/v1/clients", json={"nazwa": "ACME Sp. z o.o."})
 
     assert response.status_code == 201
     body = response.json()
-    assert body["name"] == "ACME Sp. z o.o."
-    assert body["id"] == 1001
-    assert body["client_id"] == 42
+    assert body["nazwa"] == "ACME Sp. z o.o."
+    assert body["id_klient_table"] == 1001
+    assert body["id_klient"] == 42
     assert body["nip"] is None
     assert fake_service.calls[-1] == {
         "action": "create_client",
-        "name": "ACME Sp. z o.o.",
+        "nazwa": "ACME Sp. z o.o.",
     }
 
 
 def test_create_client_requires_a_name(client: TestClient) -> None:
     assert client.post("/api/v1/clients", json={}).status_code == 422
-    assert client.post("/api/v1/clients", json={"name": ""}).status_code == 422
-    assert client.post("/api/v1/clients", json={"name": "x" * 501}).status_code == 422
+    assert client.post("/api/v1/clients", json={"nazwa": ""}).status_code == 422
+    assert client.post("/api/v1/clients", json={"nazwa": "x" * 501}).status_code == 422
+    assert client.post("/api/v1/clients", json={"name": "ACME"}).status_code == 422
     assert client.post("/api/v1/clients").status_code == 422
 
 
@@ -527,10 +532,10 @@ def test_create_client_requires_api_key() -> None:
     settings = make_settings(api_key="secret")
     app = create_app(settings, service=FakeService())
     with TestClient(app) as client:
-        assert client.post("/api/v1/clients", json={"name": "ACME"}).status_code == 401
+        assert client.post("/api/v1/clients", json={"nazwa": "ACME"}).status_code == 401
         allowed = client.post(
             "/api/v1/clients",
-            json={"name": "ACME"},
+            json={"nazwa": "ACME"},
             headers={"X-API-Key": "secret"},
         )
         assert allowed.status_code == 201
@@ -540,12 +545,12 @@ def test_create_client_reports_disabled_writes_as_403() -> None:
     """``api.allow_writes: false`` must answer 403, not 500."""
 
     class ReadOnlyService(FakeService):
-        def create_client(self, *, name: str) -> dict[str, object]:
+        def create_client(self, *, nazwa: str) -> dict[str, object]:
             raise WritesDisabled("Writes are disabled")
 
     app = create_app(make_settings(), service=ReadOnlyService())
     with TestClient(app) as client:
-        response = client.post("/api/v1/clients", json={"name": "ACME"})
+        response = client.post("/api/v1/clients", json={"nazwa": "ACME"})
 
     assert response.status_code == 403
     assert response.json() == {

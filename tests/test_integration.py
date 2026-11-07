@@ -141,7 +141,7 @@ def test_clients_endpoint_lists_contractors(service: DatabaseService) -> None:
     assert page["offset"] == 0
     assert page["count"] == len(page["clients"])
     assert page["total"] >= page["count"]
-    assert all({"id", "name"} <= set(client) for client in page["clients"])
+    assert all({"id_klient_table", "nazwa"} <= set(client) for client in page["clients"])
 
 
 def test_clients_endpoint_over_http(service: DatabaseService) -> None:
@@ -164,7 +164,7 @@ def test_agreements_endpoint_lists_contracts(service: DatabaseService) -> None:
     assert page["offset"] == 0
     assert page["count"] == len(page["agreements"])
     assert page["total"] >= page["count"]
-    assert all({"id", "number"} <= set(agreement) for agreement in page["agreements"])
+    assert all({"id_umowacpc_table", "umowa"} <= set(agreement) for agreement in page["agreements"])
 
 
 def test_agreements_endpoint_over_http(service: DatabaseService) -> None:
@@ -188,7 +188,7 @@ def test_machines_endpoint_lists_devices(service: DatabaseService) -> None:
     assert page["count"] == len(page["machines"])
     assert page["total"] >= page["count"]
     assert all(
-        {"id", "brand", "serial"} <= set(machine) for machine in page["machines"]
+        {"id_maszyna_table", "marka", "serial"} <= set(machine) for machine in page["machines"]
     )
 
 
@@ -212,7 +212,7 @@ def test_orders_endpoint_lists_service_orders(service: DatabaseService) -> None:
     assert page["offset"] == 0
     assert page["count"] == len(page["orders"])
     assert page["total"] >= page["count"]
-    assert all({"id", "order_id", "status"} <= set(order) for order in page["orders"])
+    assert all({"id_zlecenie_table", "id_zlecenie", "stan"} <= set(order) for order in page["orders"])
 
 
 def test_orders_endpoint_over_http(service: DatabaseService) -> None:
@@ -233,12 +233,12 @@ def test_orders_search_spans_many_columns_without_hitting_the_limit(
     service: DatabaseService,
 ) -> None:
     """Every curated column must exist and still prepare together."""
-    from ks_adapter.service import ORDER_FIELDS, ORDERS_TABLE, ORDER_SEARCH_COLUMNS
+    from ks_adapter.service import ORDER_COLUMNS, ORDERS_TABLE, ORDER_SEARCH_COLUMNS
 
     columns = service.describe_table(ORDERS_TABLE)["columns"]
     names = {column["name"].upper() for column in columns}
     assert set(ORDER_SEARCH_COLUMNS) <= names
-    assert {column for column, _alias in ORDER_FIELDS} <= names
+    assert set(ORDER_COLUMNS) <= names
 
     page = service.fetch_orders(search="a", limit=2)
     assert page["count"] == len(page["orders"])
@@ -251,7 +251,7 @@ def test_invoices_endpoint_lists_invoices(service: DatabaseService) -> None:
     assert page["count"] == len(page["invoices"])
     assert page["total"] >= page["count"]
     assert all(
-        {"id", "number", "gross", "amount_due"} <= set(invoice)
+        {"id_faktura_table", "numer", "suma_brutto", "do_zaplaty"} <= set(invoice)
         for invoice in page["invoices"]
     )
 
@@ -273,7 +273,7 @@ def test_invoices_endpoint_over_http(service: DatabaseService) -> None:
 def test_invoice_columns_match_the_live_schema(service: DatabaseService) -> None:
     """Every curated column must exist and still prepare in one statement."""
     from ks_adapter.service import (
-        INVOICE_FIELDS,
+        INVOICE_COLUMNS,
         INVOICES_TABLE,
         INVOICE_SEARCH_COLUMNS,
     )
@@ -281,7 +281,7 @@ def test_invoice_columns_match_the_live_schema(service: DatabaseService) -> None
     columns = service.describe_table(INVOICES_TABLE)["columns"]
     names = {column["name"].upper() for column in columns}
     assert set(INVOICE_SEARCH_COLUMNS) <= names
-    assert {column for column, _alias in INVOICE_FIELDS} <= names
+    assert set(INVOICE_COLUMNS) <= names
 
     page = service.fetch_invoices(search="a", limit=2)
     assert page["count"] == len(page["invoices"])
@@ -318,21 +318,23 @@ def test_create_client_is_refused_without_allow_writes(
     service: DatabaseService,
 ) -> None:
     with pytest.raises(WritesDisabled):
-        service.create_client(name="KS ADAPTER TEST")
+        service.create_client(nazwa="KS ADAPTER TEST")
 
 
 @requires_writable
 def test_create_client_stores_the_name_only(write_service: DatabaseService) -> None:
     name = f"KS ADAPTER TEST {os.getpid()}"
-    created = write_service.create_client(name=name)
+    created = write_service.create_client(nazwa=name)
     try:
-        assert created["name"] == name
-        assert created["id"]
-        assert created["client_id"]
+        assert created["nazwa"] == name
+        assert created["id_klient_table"]
+        assert created["id_klient"]
         page = write_service.fetch_clients(search=name, limit=5)
-        assert [client["id"] for client in page["clients"]] == [created["id"]]
+        assert [client["id_klient_table"] for client in page["clients"]] == [
+            created["id_klient_table"]
+        ]
     finally:
-        delete_client(write_service, created["id"])
+        delete_client(write_service, created["id_klient_table"])
 
 
 @requires_writable
@@ -340,13 +342,13 @@ def test_create_client_endpoint_over_http(write_service: DatabaseService) -> Non
     name = f"KS ADAPTER HTTP {os.getpid()}"
     app = create_app(write_service.settings, service=write_service)
     with TestClient(app) as client:
-        response = client.post("/api/v1/clients", json={"name": name})
+        response = client.post("/api/v1/clients", json={"nazwa": name})
     body = response.json()
     try:
         assert response.status_code == 201
-        assert body["name"] == name
-        assert body["id"]
+        assert body["nazwa"] == name
+        assert body["id_klient_table"]
     finally:
         if response.status_code == 201:
-            delete_client(write_service, body["id"])
+            delete_client(write_service, body["id_klient_table"])
 

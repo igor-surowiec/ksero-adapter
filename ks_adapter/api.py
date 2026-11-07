@@ -30,7 +30,9 @@ from .service import DatabaseService
 
 FILTERS_DESCRIPTION = (
     "JSON object with column filters, e.g. "
-    '{"NAZWA": "Kowalski", "TYP": {"op": "in", "value": [1, 2]}}. '
+    '{"nazwa": "Kowalski", "typ": {"op": "in", "value": [1, 2]}}. '
+    "Column names are matched case-insensitively, so the lower-cased Polish "
+    "names of the responses work here too. "
     "Supported operators: eq, ne, gt, ge, lt, le, like, contains, startswith, "
     "endswith, in, isnull, notnull."
 )
@@ -167,10 +169,11 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="List contractors (clients)",
         description=(
-            "Returns a page of contractors from the KLIENT table with the most "
-            "useful fields (id, name, NIP/REGON, address, contacts, payment "
-            "terms). 'search' matches the name, short name, NIP, REGON, email, "
-            "phone, postcode and city (case sensitive substring)."
+            "Returns a page of contractors from the KLIENT table, keyed by the "
+            "lower-cased column names (nazwa, id_klient, nip, regon, adres, "
+            "kod, poczta, telefon, e_mail, ...). 'search' matches nazwa, "
+            "nazwa_s, nip, regon, e_mail, telefon, kod and poczta (case "
+            "sensitive substring)."
         ),
         dependencies=protected,
     )
@@ -185,7 +188,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         search: str | None = Query(
             default=None,
             max_length=100,
-            description="Substring matched against name, NIP, email, phone, ...",
+            description="Substring matched against nazwa, nip, e_mail, telefon, ...",
         ),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
@@ -199,10 +202,11 @@ def create_router(settings: AppSettings) -> APIRouter:
         summary="Create a contractor (client)",
         description=(
             "Inserts one row into the KLIENT table and returns the stored row "
-            "in the same shape as GET /clients. 'name' (NAZWA) is the only "
-            "required value: the INS_KLIENT_RECORD trigger fills ID_KLIENT_TABLE, "
-            "ID_KLIENT and ID_FIRMA from its generators/constants and ID_ODDZIAL "
-            "falls back to its column default, so every other column stays null. "
+            "in the same shape as GET /clients (keys are the lower-cased "
+            "column names). 'nazwa' (NAZWA) is the only required value: the "
+            "INS_KLIENT_RECORD trigger fills ID_KLIENT_TABLE, ID_KLIENT and "
+            "ID_FIRMA from its generators/constants and ID_ODDZIAL falls back "
+            "to its column default, so every other column stays null. "
             "Requires 'api.allow_writes' (otherwise 403) and, when configured, "
             "the X-API-Key header."
         ),
@@ -212,7 +216,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         payload: ClientCreate,
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
-        return service.create_client(name=payload.name)
+        return service.create_client(nazwa=payload.nazwa)
 
     @router.get(
         "/agreements",
@@ -220,11 +224,10 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="List service agreements (contracts)",
         description=(
-            "Returns a page of service agreements from the UMOWACPC table with "
-            "the most useful fields (ids, number, type, parties, dates, "
-            "financial summary, contact person, printing volumes). 'search' "
-            "matches the agreement number, type, salesperson, supervisor, "
-            "supervisor e-mail, invoice e-mail and linked file (case sensitive "
+            "Returns a page of service agreements from the UMOWACPC table, "
+            "keyed by the lower-cased column names (id_umowacpc, umowa, typ, "
+            "id_klient, ...). 'search' matches umowa, typ, handlowiec, "
+            "opiekun, opiekunmail, fraemail and plik (case sensitive "
             "substring)."
         ),
         dependencies=protected,
@@ -243,7 +246,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         search: str | None = Query(
             default=None,
             max_length=100,
-            description="Substring matched against number, type, salesperson, ...",
+            description="Substring matched against umowa, typ, handlowiec, ...",
         ),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
@@ -255,13 +258,11 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="List machines (installed devices)",
         description=(
-            "Returns a page of machines from the MASZYNA table with the most "
-            "useful fields (ids, brand/model/group, serial and asset numbers, "
-            "site and contact, installation/warranty dates, meter counters, "
-            "service schedule and technician, fee and financial summary). "
-            "'search' matches the brand, model, group, type, service type, "
-            "serials, asset number, city and technician (case sensitive "
-            "substring)."
+            "Returns a page of machines from the MASZYNA table, keyed by the "
+            "lower-cased column names (id_maszyna, marka, model, serial, "
+            "licznik, ...). 'search' matches marka, model, grupa, typ, "
+            "rodzaj_us, serial, serial2, ewidencja, miejscowosc and technik "
+            "(case sensitive substring)."
         ),
         dependencies=protected,
     )
@@ -279,7 +280,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         search: str | None = Query(
             default=None,
             max_length=100,
-            description="Substring matched against brand, model, serial, ...",
+            description="Substring matched against marka, model, serial, ...",
         ),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
@@ -291,17 +292,16 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="List service orders (jobs)",
         description=(
-            "Returns a page of service orders from the ZLECENIE table with the "
-            "most useful fields (ids, year and status, links, client and "
-            "machine snapshots, dates, service type, problem/diagnosis/work "
-            "done, technician, meter counters and the financial summary). "
-            "ZLECENIE is the widest table of the schema, so the columns are a "
-            "curated subset: Firebird caps a statement message at 64 KB, which "
-            "a full-width SELECT or a LIKE over every text column would "
-            "exceed. 'search' matches the client name, address, city, contact "
-            "data, machine brand/model/serial, asset number, service texts, "
-            "technician, status, invoice number and linked file (case "
-            "sensitive substring)."
+            "Returns a page of service orders from the ZLECENIE table, keyed "
+            "by the lower-cased column names (id_zlecenie, nazwa, stan, "
+            "marka, model, ...). ZLECENIE is the widest table of the schema, "
+            "so the columns are a curated subset: Firebird caps a statement "
+            "message at 64 KB, which a full-width SELECT or a LIKE over every "
+            "text column would exceed. 'search' matches nazwa, adres, poczta, "
+            "telefon, e_mail, stoi, marka, model, serial, ewidencja, "
+            "rodzaj_us, uszkodzenie, problem, diagnoza, wykonanie, zalecenia, "
+            "uwagi, technik, zglasza, stan, faktura and plik (case sensitive "
+            "substring)."
         ),
         dependencies=protected,
     )
@@ -319,7 +319,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         search: str | None = Query(
             default=None,
             max_length=100,
-            description="Substring matched against client, machine, service texts, ...",
+            description="Substring matched against nazwa, marka, uszkodzenie, ...",
         ),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
@@ -331,16 +331,16 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="List invoices (sales documents)",
         description=(
-            "Returns a page of invoice headers from the FAKTURA table with the "
-            "most useful fields (ids and document links, the contractor "
-            "snapshot, document type/number and corrections, issue, sale, due "
-            "and paid dates, payment terms, issuer, PLN totals with paid and "
-            "outstanding amounts, the foreign-currency totals and correction "
-            "amounts). The positions live in FPOZYCJA and are not included. "
-            "'search' matches the document and correction numbers, type, "
-            "currency, contractor name/NIP/address/city, payment method, "
-            "issuer, place of issue, notes, linked order/contract numbers and "
-            "status (case sensitive substring)."
+            "Returns a page of invoice headers from the FAKTURA table, keyed "
+            "by the lower-cased column names (id_faktura_table, numer, nazwa, "
+            "suma_brutto, ...): document links, the contractor snapshot, "
+            "type/number and corrections, sale/issue/due/paid dates, payment "
+            "terms, issuer, PLN totals with paid and outstanding amounts and "
+            "the foreign-currency totals. The positions live in FPOZYCJA and "
+            "are not included. 'search' matches numer, nr_kory, korekta, "
+            "nr_par, rodzaj_dok, ccode, nazwa, nip, adres, kod, poczta, "
+            "platnosc, wystawil, miejsce_wyst, uwagi, zamowienie, doumowy and "
+            "stan (case sensitive substring)."
         ),
         dependencies=protected,
     )
@@ -358,7 +358,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         search: str | None = Query(
             default=None,
             max_length=100,
-            description="Substring matched against number, contractor, notes, ...",
+            description="Substring matched against numer, nazwa, uwagi, ...",
         ),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:

@@ -426,11 +426,11 @@ def test_fetch_clients_builds_queries_and_maps_fields() -> None:
     assert page["offset"] == 0
     assert page["clients"] == [
         {
-            "id": 2,
-            "client_id": 1,
-            "name": "ACME",
+            "id_klient_table": 2,
+            "id_klient": 1,
+            "nazwa": "ACME",
             "nip": "1234567890",
-            "last_contact": "2024-05-01",
+            "ostatnio": "2024-05-01",
         }
     ]
 
@@ -506,7 +506,7 @@ def test_fetch_clients_skips_columns_missing_from_schema() -> None:
 
     page = service.fetch_clients(limit=1)
 
-    assert page["clients"] == [{"id": 7, "name": "ACME"}]
+    assert page["clients"] == [{"id_klient_table": 7, "nazwa": "ACME"}]
     assert pool.executed[1][0] == (
         'SELECT "ID_KLIENT_TABLE", "NAZWA" FROM "KLIENT" '
         'ORDER BY "NAZWA", "ID_KLIENT_TABLE" ROWS 1 TO 1'
@@ -562,12 +562,12 @@ def test_fetch_agreements_builds_queries_and_maps_fields() -> None:
     assert page["offset"] == 0
     assert page["agreements"] == [
         {
-            "id": 5,
-            "agreement_id": 5,
-            "number": "CPC/2024/001",
-            "supervisor": "Kowalski",
-            "start_date": "2024-01-01",
-            "costs": 1500.5,
+            "id_umowacpc_table": 5,
+            "id_umowacpc": 5,
+            "umowa": "CPC/2024/001",
+            "opiekun": "Kowalski",
+            "u_start": "2024-01-01",
+            "koszty": 1500.5,
         }
     ]
 
@@ -630,7 +630,7 @@ def test_fetch_agreements_serialises_decimals_as_strings() -> None:
 
     page = service.fetch_agreements(limit=1)
 
-    assert page["agreements"] == [{"costs": "1500.5000"}]
+    assert page["agreements"] == [{"koszty": "1500.5000"}]
 
 
 def test_fetch_agreements_skips_columns_missing_from_schema() -> None:
@@ -653,7 +653,7 @@ def test_fetch_agreements_skips_columns_missing_from_schema() -> None:
 
     page = service.fetch_agreements(limit=1)
 
-    assert page["agreements"] == [{"id": 3, "number": "CPC/2024/002"}]
+    assert page["agreements"] == [{"id_umowacpc_table": 3, "umowa": "CPC/2024/002"}]
     assert pool.executed[1][0] == (
         'SELECT "ID_UMOWACPC_TABLE", "UMOWA" FROM "UMOWACPC" '
         'ORDER BY "UMOWA", "ID_UMOWACPC_TABLE" ROWS 1 TO 1'
@@ -725,13 +725,13 @@ def test_fetch_machines_builds_queries_and_maps_fields() -> None:
     assert page["offset"] == 0
     assert page["machines"] == [
         {
-            "id": 3,
-            "machine_id": 2,
-            "brand": "KONICA",
+            "id_maszyna_table": 3,
+            "id_maszyna": 2,
+            "marka": "KONICA",
             "serial": "SN-0001",
-            "install_date": "2024-03-01",
-            "technician": "Nowak Anna",
-            "costs": 120.0,
+            "instalacja": "2024-03-01",
+            "technik": "Nowak Anna",
+            "koszty": 120.0,
         }
     ]
 
@@ -788,7 +788,7 @@ def test_fetch_machines_serialises_decimals_as_strings() -> None:
 
     page = service.fetch_machines(limit=1)
 
-    assert page["machines"] == [{"fee": "0.1200"}]
+    assert page["machines"] == [{"oplata": "0.1200"}]
 
 
 def test_fetch_machines_skips_columns_missing_from_schema() -> None:
@@ -811,7 +811,7 @@ def test_fetch_machines_skips_columns_missing_from_schema() -> None:
 
     page = service.fetch_machines(limit=1)
 
-    assert page["machines"] == [{"id": 3, "brand": "KONICA"}]
+    assert page["machines"] == [{"id_maszyna_table": 3, "marka": "KONICA"}]
     assert pool.executed[1][0] == (
         'SELECT "ID_MASZYNA_TABLE", "MARKA" FROM "MASZYNA" '
         'ORDER BY "ID_MASZYNA_TABLE" ROWS 1 TO 1'
@@ -885,14 +885,14 @@ def test_fetch_orders_builds_queries_and_maps_fields() -> None:
     assert page["offset"] == 0
     assert page["orders"] == [
         {
-            "id": 2,
-            "order_id": 2,
-            "status": "O",
-            "client_name": "ACME",
-            "brand": "KONICA",
-            "order_date": "2026-11-07",
-            "technician": "Nowak Anna",
-            "gross": 120.5,
+            "id_zlecenie_table": 2,
+            "id_zlecenie": 2,
+            "stan": "O",
+            "nazwa": "ACME",
+            "marka": "KONICA",
+            "data": "2026-11-07",
+            "technik": "Nowak Anna",
+            "brutto": 120.5,
         }
     ]
 
@@ -952,7 +952,7 @@ def test_fetch_orders_serialises_decimals_as_strings() -> None:
 
     page = service.fetch_orders(limit=1)
 
-    assert page["orders"] == [{"gross": "120.5000"}]
+    assert page["orders"] == [{"brutto": "120.5000"}]
 
 
 def test_fetch_orders_skips_columns_missing_from_schema() -> None:
@@ -972,7 +972,7 @@ def test_fetch_orders_skips_columns_missing_from_schema() -> None:
 
     page = service.fetch_orders(limit=1)
 
-    assert page["orders"] == [{"id": 2, "status": "O"}]
+    assert page["orders"] == [{"id_zlecenie_table": 2, "stan": "O"}]
     assert pool.executed[1][0] == (
         'SELECT "ID_ZLECENIE_TABLE", "STAN" FROM "ZLECENIE" '
         'ORDER BY "ID_ZLECENIE_TABLE" ROWS 1 TO 1'
@@ -1051,12 +1051,12 @@ def test_fetch_invoices_builds_queries_and_maps_fields() -> None:
     assert page["offset"] == 0
     assert page["invoices"] == [
         {
-            "id": 5,
-            "number": "FV/2026/11/001",
-            "client_name": "ACME",
-            "issue_date": "2026-11-07",
-            "status": "W",
-            "gross": 1230.0,
+            "id_faktura_table": 5,
+            "numer": "FV/2026/11/001",
+            "nazwa": "ACME",
+            "data_wyst": "2026-11-07",
+            "stan": "W",
+            "suma_brutto": 1230.0,
         }
     ]
 
@@ -1139,7 +1139,7 @@ def test_create_client_inserts_only_the_name() -> None:
     )
     service = make_projection_service(pool, KLIENT, allow_writes=True)
 
-    created = service.create_client(name="  ACME  ")
+    created = service.create_client(nazwa="  ACME  ")
 
     assert pool.executed == [
         (
@@ -1151,11 +1151,11 @@ def test_create_client_inserts_only_the_name() -> None:
     assert pool.committed == 1
     assert pool.rolled_back == 0
     assert created == {
-        "id": 5,
-        "client_id": 4,
-        "name": "ACME",
+        "id_klient_table": 5,
+        "id_klient": 4,
+        "nazwa": "ACME",
         "nip": None,
-        "last_contact": "2026-01-02",
+        "ostatnio": "2026-01-02",
     }
 
 
@@ -1164,7 +1164,7 @@ def test_create_client_is_rejected_when_writes_are_disabled() -> None:
     service = make_projection_service(pool, KLIENT)
 
     with pytest.raises(WritesDisabled):
-        service.create_client(name="ACME")
+        service.create_client(nazwa="ACME")
 
     assert pool.executed == []
     assert pool.committed == 0
@@ -1175,11 +1175,11 @@ def test_create_client_validates_the_name() -> None:
     service = make_projection_service(pool, KLIENT, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_client(name="")
+        service.create_client(nazwa="")
     with pytest.raises(InvalidRequest):
-        service.create_client(name="   ")
+        service.create_client(nazwa="   ")
     with pytest.raises(InvalidRequest):
-        service.create_client(name="x" * 501)
+        service.create_client(nazwa="x" * 501)
 
     assert pool.executed == []
 
@@ -1197,7 +1197,10 @@ def test_create_client_skips_columns_missing_from_the_schema() -> None:
     pool = _Pool([([("ID_KLIENT_TABLE",), ("NAZWA",)], [(7, "ACME")])])
     service = make_projection_service(pool, narrow, allow_writes=True)
 
-    assert service.create_client(name="ACME") == {"id": 7, "name": "ACME"}
+    assert service.create_client(nazwa="ACME") == {
+        "id_klient_table": 7,
+        "nazwa": "ACME",
+    }
     assert pool.executed[0][0] == (
         'INSERT INTO "KLIENT" ("NAZWA") VALUES (?) RETURNING '
         '"ID_KLIENT_TABLE", "NAZWA"'
@@ -1218,7 +1221,7 @@ def test_create_client_requires_the_name_column() -> None:
     service = make_projection_service(pool, broken, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_client(name="ACME")
+        service.create_client(nazwa="ACME")
 
     assert pool.executed == []
 
@@ -1228,7 +1231,7 @@ def test_create_client_rolls_back_when_the_insert_fails() -> None:
     service = make_projection_service(pool, KLIENT, allow_writes=True)
 
     with pytest.raises(IndexError):
-        service.create_client(name="ACME")
+        service.create_client(nazwa="ACME")
 
     assert pool.committed == 0
     assert pool.rolled_back == 1

@@ -29,27 +29,29 @@ logger = logging.getLogger(__name__)
 #: Table holding contractors/clients in the BAZAMS schema.
 CLIENTS_TABLE = "KLIENT"
 
-#: Columns exposed by ``GET /clients`` mapped to their JSON field names.
-CLIENT_FIELDS: tuple[tuple[str, str], ...] = (
-    ("ID_KLIENT_TABLE", "id"),
-    ("ID_KLIENT", "client_id"),
-    ("NAZWA", "name"),
-    ("NAZWA_S", "short_name"),
-    ("NIP", "nip"),
-    ("REGON", "regon"),
-    ("ADRES", "address"),
-    ("KOD", "postcode"),
-    ("POCZTA", "city"),
-    ("WOJEWODZTWO", "province"),
-    ("TELEFON", "phone"),
-    ("E_MAIL", "email"),
-    ("WWW", "website"),
-    ("TYP", "type"),
-    ("AKTYWNY", "active"),
-    ("PLATNOSC", "payment_method"),
-    ("TERMIN", "payment_days"),
-    ("RABAT", "discount"),
-    ("OSTATNIO", "last_contact"),
+#: Columns exposed by ``GET /clients``.  The curated endpoints speak the
+#: database's own vocabulary: every row is keyed by the lower-cased column name
+#: (``NAZWA`` -> ``nazwa``), so no separate field mapping has to be maintained.
+CLIENT_COLUMNS: tuple[str, ...] = (
+    "ID_KLIENT_TABLE",
+    "ID_KLIENT",
+    "NAZWA",
+    "NAZWA_S",
+    "NIP",
+    "REGON",
+    "ADRES",
+    "KOD",
+    "POCZTA",
+    "WOJEWODZTWO",
+    "TELEFON",
+    "E_MAIL",
+    "WWW",
+    "TYP",
+    "AKTYWNY",
+    "PLATNOSC",
+    "TERMIN",
+    "RABAT",
+    "OSTATNIO",
 )
 
 #: Columns matched by the ``search`` parameter of ``GET /clients``.
@@ -71,36 +73,36 @@ CLIENT_NAME_MAX_LENGTH = 500
 #: Table holding service agreements (contracts) in the BAZAMS schema.
 AGREEMENTS_TABLE = "UMOWACPC"
 
-#: Columns exposed by ``GET /agreements`` mapped to their JSON field names.
-AGREEMENT_FIELDS: tuple[tuple[str, str], ...] = (
-    ("ID_UMOWACPC_TABLE", "id"),
-    ("ID_UMOWACPC", "agreement_id"),
-    ("ID_ODDZIAL", "branch_id"),
-    ("ID_KLIENT", "client_id"),
-    ("ID_ODBIORCA", "recipient_id"),
-    ("ID_FIRMA", "company_id"),
-    ("UMOWA", "number"),
-    ("TYP", "type"),
-    ("HANDLOWIEC", "salesperson"),
-    ("OPIEKUN", "supervisor"),
-    ("OPIEKUNMAIL", "supervisor_email"),
-    ("OPIEKUNTEL", "supervisor_phone"),
-    ("U_START", "start_date"),
-    ("U_STOP", "end_date"),
-    ("WARUNKI", "terms"),
-    ("UWAGI", "notes"),
-    ("KOSZTY", "costs"),
-    ("PRZYCHODY", "revenue"),
-    ("WYNIK", "profit"),
-    ("RABAT", "discount"),
-    ("PLATNOSC", "payment_method"),
-    ("TERMIN", "payment_days"),
-    ("AKTYWNA", "active"),
-    ("STRONY_MONO", "pages_mono"),
-    ("STRONY_KOLOR", "pages_color"),
-    ("SKANY", "scans"),
-    ("FRAEMAIL", "invoice_email"),
-    ("PLIK", "file"),
+#: Columns exposed by ``GET /agreements`` (keys: lower-cased column names).
+AGREEMENT_COLUMNS: tuple[str, ...] = (
+    "ID_UMOWACPC_TABLE",
+    "ID_UMOWACPC",
+    "ID_ODDZIAL",
+    "ID_KLIENT",
+    "ID_ODBIORCA",
+    "ID_FIRMA",
+    "UMOWA",
+    "TYP",
+    "HANDLOWIEC",
+    "OPIEKUN",
+    "OPIEKUNMAIL",
+    "OPIEKUNTEL",
+    "U_START",
+    "U_STOP",
+    "WARUNKI",
+    "UWAGI",
+    "KOSZTY",
+    "PRZYCHODY",
+    "WYNIK",
+    "RABAT",
+    "PLATNOSC",
+    "TERMIN",
+    "AKTYWNA",
+    "STRONY_MONO",
+    "STRONY_KOLOR",
+    "SKANY",
+    "FRAEMAIL",
+    "PLIK",
 )
 
 #: Columns matched by the ``search`` parameter of ``GET /agreements``.
@@ -117,48 +119,48 @@ AGREEMENT_SEARCH_COLUMNS: tuple[str, ...] = (
 #: Table holding machines (installed devices) in the BAZAMS schema.
 MACHINES_TABLE = "MASZYNA"
 
-#: Columns exposed by ``GET /machines`` mapped to their JSON field names.
-MACHINE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("ID_MASZYNA_TABLE", "id"),
-    ("ID_MASZYNA", "machine_id"),
-    ("ID_KLIENT", "client_id"),
-    ("ID_ODDZIAL", "branch_id"),
-    ("ID_FIRMA", "company_id"),
-    ("ID_MODEL", "model_id"),
-    ("ID_UMOWACPC", "agreement_id"),
-    ("MARKA", "brand"),
-    ("MODEL", "model"),
-    ("GRUPA", "group"),
-    ("TYP", "type"),
-    ("RODZAJ_US", "service_type"),
-    ("SERIAL", "serial"),
-    ("SERIAL2", "serial_alt"),
-    ("EWIDENCJA", "inventory_no"),
-    ("STOI", "location"),
-    ("ADRES", "address"),
-    ("MIEJSCOWOSC", "city"),
-    ("EMAIL", "email"),
-    ("INSTALACJA", "install_date"),
-    ("GWARANCJA", "warranty_months"),
-    ("GWARANCJA_DO", "warranty_until"),
-    ("LAST_M", "last_reading_date"),
-    ("LICZNIK", "counter"),
-    ("LICZNIKA3", "counter_a3"),
-    ("LICZNIK_TOTAL", "counter_total"),
-    ("BEZLICZ", "meterless"),
-    ("LAST_W", "last_service_date"),
-    ("NEXT_W", "next_service_date"),
-    ("KONSERWACJA", "maintenance_date"),
-    ("PRZEGLADY", "service_count"),
-    ("TECHNIK", "technician"),
-    ("ZALECENIA", "recommendations"),
-    ("UWAGI", "notes"),
-    ("OPLATA", "fee"),
-    ("KOSZTY", "costs"),
-    ("PRZYCHODY", "revenue"),
-    ("WYNIK", "profit"),
-    ("AKTYWNA", "active"),
-    ("KOLOROWA", "color"),
+#: Columns exposed by ``GET /machines`` (keys: lower-cased column names).
+MACHINE_COLUMNS: tuple[str, ...] = (
+    "ID_MASZYNA_TABLE",
+    "ID_MASZYNA",
+    "ID_KLIENT",
+    "ID_ODDZIAL",
+    "ID_FIRMA",
+    "ID_MODEL",
+    "ID_UMOWACPC",
+    "MARKA",
+    "MODEL",
+    "GRUPA",
+    "TYP",
+    "RODZAJ_US",
+    "SERIAL",
+    "SERIAL2",
+    "EWIDENCJA",
+    "STOI",
+    "ADRES",
+    "MIEJSCOWOSC",
+    "EMAIL",
+    "INSTALACJA",
+    "GWARANCJA",
+    "GWARANCJA_DO",
+    "LAST_M",
+    "LICZNIK",
+    "LICZNIKA3",
+    "LICZNIK_TOTAL",
+    "BEZLICZ",
+    "LAST_W",
+    "NEXT_W",
+    "KONSERWACJA",
+    "PRZEGLADY",
+    "TECHNIK",
+    "ZALECENIA",
+    "UWAGI",
+    "OPLATA",
+    "KOSZTY",
+    "PRZYCHODY",
+    "WYNIK",
+    "AKTYWNA",
+    "KOLOROWA",
 )
 
 #: Columns matched by the ``search`` parameter of ``GET /machines``.
@@ -178,66 +180,66 @@ MACHINE_SEARCH_COLUMNS: tuple[str, ...] = (
 #: Table holding service orders (jobs) in the BAZAMS schema.
 ORDERS_TABLE = "ZLECENIE"
 
-#: Columns exposed by ``GET /orders`` mapped to their JSON field names.
+#: Columns exposed by ``GET /orders`` (keys: lower-cased column names).
 #:
 #: ``ZLECENIE`` is the widest table of the schema, so this is a hand-picked
 #: projection rather than ``SELECT *``: it keeps the response shape stable and
 #: the fetch message small (Firebird caps a statement message at 64 KB, which a
 #: ``SELECT *`` of a very wide table would eventually blow).
-ORDER_FIELDS: tuple[tuple[str, str], ...] = (
-    ("ID_ZLECENIE_TABLE", "id"),
-    ("ID_ZLECENIE", "order_id"),
-    ("ROK", "year"),
-    ("STAN", "status"),
-    ("ID_FIRMA", "company_id"),
-    ("ID_ODDZIAL", "branch_id"),
-    ("ID_KLIENT", "client_id"),
-    ("ID_MASZYNA", "machine_id"),
-    ("NAZWA", "client_name"),
-    ("ADRES", "address"),
-    ("KOD", "postcode"),
-    ("POCZTA", "city"),
-    ("TELEFON", "phone"),
-    ("E_MAIL", "email"),
-    ("STOI", "location"),
-    ("MARKA", "brand"),
-    ("MODEL", "model"),
-    ("SERIAL", "serial"),
-    ("EWIDENCJA", "inventory_no"),
-    ("DATA", "order_date"),
-    ("TERMIN", "due_date"),
-    ("DATA_Z", "scheduled_date"),
-    ("GODZINA_PLAN", "planned_time"),
-    ("DATA_PRZY", "accepted_on"),
-    ("DATA_WYDA", "issued_on"),
-    ("DATA_START", "started_on"),
-    ("DATA_STOP", "finished_on"),
-    ("RODZAJ_US", "service_type"),
-    ("USZKODZENIE", "damage"),
-    ("PROBLEM", "problem"),
-    ("DIAGNOZA", "diagnosis"),
-    ("WYKONANIE", "work_done"),
-    ("ZALECENIA", "recommendations"),
-    ("UWAGI", "notes"),
-    ("TECHNIK", "technician"),
-    ("ZGLASZA", "reported_by"),
-    ("OPERATOR", "operator"),
-    ("SIGNWHO", "signed_by"),
-    ("SIGNWHEN", "signed_at"),
-    ("LICZNIK", "counter"),
-    ("LICZNIKA3", "counter_a3"),
-    ("LICZNIK_TOTAL", "counter_total"),
-    ("ROBOCIZNA", "labour"),
-    ("DOJAZD", "travel"),
-    ("CZESCI", "parts"),
-    ("MATERIALY", "materials"),
-    ("NETTO", "net"),
-    ("VAT", "vat"),
-    ("BRUTTO", "gross"),
-    ("ZALICZKA", "prepayment"),
-    ("PLATNOSC", "payment_method"),
-    ("FAKTURA", "invoice_number"),
-    ("PLIK", "file"),
+ORDER_COLUMNS: tuple[str, ...] = (
+    "ID_ZLECENIE_TABLE",
+    "ID_ZLECENIE",
+    "ROK",
+    "STAN",
+    "ID_FIRMA",
+    "ID_ODDZIAL",
+    "ID_KLIENT",
+    "ID_MASZYNA",
+    "NAZWA",
+    "ADRES",
+    "KOD",
+    "POCZTA",
+    "TELEFON",
+    "E_MAIL",
+    "STOI",
+    "MARKA",
+    "MODEL",
+    "SERIAL",
+    "EWIDENCJA",
+    "DATA",
+    "TERMIN",
+    "DATA_Z",
+    "GODZINA_PLAN",
+    "DATA_PRZY",
+    "DATA_WYDA",
+    "DATA_START",
+    "DATA_STOP",
+    "RODZAJ_US",
+    "USZKODZENIE",
+    "PROBLEM",
+    "DIAGNOZA",
+    "WYKONANIE",
+    "ZALECENIA",
+    "UWAGI",
+    "TECHNIK",
+    "ZGLASZA",
+    "OPERATOR",
+    "SIGNWHO",
+    "SIGNWHEN",
+    "LICZNIK",
+    "LICZNIKA3",
+    "LICZNIK_TOTAL",
+    "ROBOCIZNA",
+    "DOJAZD",
+    "CZESCI",
+    "MATERIALY",
+    "NETTO",
+    "VAT",
+    "BRUTTO",
+    "ZALICZKA",
+    "PLATNOSC",
+    "FAKTURA",
+    "PLIK",
 )
 
 #: Columns matched by the ``search`` parameter of ``GET /orders``.
@@ -274,7 +276,7 @@ ORDER_SEARCH_COLUMNS: tuple[str, ...] = (
 #: Table holding invoices (sales documents) in the BAZAMS schema.
 INVOICES_TABLE = "FAKTURA"
 
-#: Columns exposed by ``GET /invoices`` mapped to their JSON field names.
+#: Columns exposed by ``GET /invoices`` (keys: lower-cased column names).
 #:
 #: The invoice header of ``FAKTURA`` is wide and mostly bookkeeping, so the
 #: projection keeps document identity, links, the contractor snapshot, dates,
@@ -284,66 +286,66 @@ INVOICES_TABLE = "FAKTURA"
 #: variants), the ``F_*`` marker flags and the ``ALIENSYNCH*``/``WERSJA``/
 #: ``EDITCNT``/``TEMP`` bookkeeping columns stay out of the payload.  The
 #: invoice lines live in the separate ``FPOZYCJA`` table and are not exposed.
-INVOICE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("ID_FAKTURA_TABLE", "id"),
-    ("ID_ODDZIAL", "branch_id"),
-    ("ID_FIRMA", "company_id"),
-    ("ID_MAGAZYN", "warehouse_id"),
-    ("ID_KLIENT", "client_id"),
-    ("ID_ODBIORCA", "recipient_id"),
-    ("ID_MASZYNA", "machine_id"),
-    ("ID_ZLECENIE", "service_order_id"),
-    ("ROK_ZLECENIA", "service_order_year"),
-    ("ID_KOSZTORYS", "estimate_id"),
-    ("ID_WZ", "wz_id"),
-    ("ID_UMOWA", "contract_id"),
-    ("ID_UMOWACPC", "agreement_id"),
-    ("ID_ZAMOWIENIE", "purchase_order_id"),
-    ("ID_PACZKA", "parcel_id"),
-    ("ID_ACCOUNT", "account_id"),
-    ("ID_CURR", "currency_id"),
-    ("NAZWA", "client_name"),
-    ("ADRES", "address"),
-    ("KOD", "postcode"),
-    ("POCZTA", "city"),
-    ("NIP", "nip"),
-    ("KOD_KRAJU", "country_code"),
-    ("RODZAJ_DOK", "document_type"),
-    ("NUMER", "number"),
-    ("NR_KORY", "corrected_number"),
-    ("KOREKTA", "correction_number"),
-    ("NR_PAR", "receipt_number"),
-    ("CCODE", "currency_code"),
-    ("MIEJSCE_WYST", "issue_place"),
-    ("WYSTAWIL", "issued_by"),
-    ("ODEBRAL", "received_by"),
-    ("DATA_SPRZ", "sale_date"),
-    ("DATA_WYST", "issue_date"),
-    ("DATA_PLAT", "due_date"),
-    ("DATA_ZAPL", "paid_date"),
-    ("DATA_KORY", "correction_date"),
-    ("DATA_ZAM", "purchase_order_date"),
-    ("DNI_PLAT", "payment_days"),
-    ("PLATNOSC", "payment_method"),
-    ("WAL_KURS", "exchange_rate"),
-    ("SUMA_NETTO", "net"),
-    ("SUMA_VAT", "vat"),
-    ("SUMA_BRUTTO", "gross"),
-    ("ZAPLACONO", "paid"),
-    ("ZALICZKA", "prepayment"),
-    ("DO_ZAPLATY", "amount_due"),
-    ("POKOR_NETTO", "corrected_net"),
-    ("POKOR_VAT", "corrected_vat"),
-    ("POKOR_BRUTTO", "corrected_gross"),
-    ("WAL_NETTO", "net_currency"),
-    ("WAL_VAT", "vat_currency"),
-    ("WAL_BRUTTO", "gross_currency"),
-    ("WAL_ZAPLACONO", "paid_currency"),
-    ("WAL_DO_ZAPLATY", "amount_due_currency"),
-    ("STAN", "status"),
-    ("UWAGI", "notes"),
-    ("ZAMOWIENIE", "purchase_order_number"),
-    ("DOUMOWY", "contract_number"),
+INVOICE_COLUMNS: tuple[str, ...] = (
+    "ID_FAKTURA_TABLE",
+    "ID_ODDZIAL",
+    "ID_FIRMA",
+    "ID_MAGAZYN",
+    "ID_KLIENT",
+    "ID_ODBIORCA",
+    "ID_MASZYNA",
+    "ID_ZLECENIE",
+    "ROK_ZLECENIA",
+    "ID_KOSZTORYS",
+    "ID_WZ",
+    "ID_UMOWA",
+    "ID_UMOWACPC",
+    "ID_ZAMOWIENIE",
+    "ID_PACZKA",
+    "ID_ACCOUNT",
+    "ID_CURR",
+    "NAZWA",
+    "ADRES",
+    "KOD",
+    "POCZTA",
+    "NIP",
+    "KOD_KRAJU",
+    "RODZAJ_DOK",
+    "NUMER",
+    "NR_KORY",
+    "KOREKTA",
+    "NR_PAR",
+    "CCODE",
+    "MIEJSCE_WYST",
+    "WYSTAWIL",
+    "ODEBRAL",
+    "DATA_SPRZ",
+    "DATA_WYST",
+    "DATA_PLAT",
+    "DATA_ZAPL",
+    "DATA_KORY",
+    "DATA_ZAM",
+    "DNI_PLAT",
+    "PLATNOSC",
+    "WAL_KURS",
+    "SUMA_NETTO",
+    "SUMA_VAT",
+    "SUMA_BRUTTO",
+    "ZAPLACONO",
+    "ZALICZKA",
+    "DO_ZAPLATY",
+    "POKOR_NETTO",
+    "POKOR_VAT",
+    "POKOR_BRUTTO",
+    "WAL_NETTO",
+    "WAL_VAT",
+    "WAL_BRUTTO",
+    "WAL_ZAPLACONO",
+    "WAL_DO_ZAPLATY",
+    "STAN",
+    "UWAGI",
+    "ZAMOWIENIE",
+    "DOUMOWY",
 )
 
 #: Columns matched by the ``search`` parameter of ``GET /invoices``.
@@ -470,13 +472,13 @@ class DatabaseService:
     ) -> dict[str, Any]:
         """Return a page of contractors from the ``KLIENT`` table.
 
-        Only :data:`CLIENT_FIELDS` are selected, so the response shape stays
+        Only :data:`CLIENT_COLUMNS` are selected, so the response shape stays
         stable even though the physical table is much wider.  Columns missing
         from the database are skipped instead of failing the request.
         """
         page = self._projection_page(
             CLIENTS_TABLE,
-            CLIENT_FIELDS,
+            CLIENT_COLUMNS,
             CLIENT_SEARCH_COLUMNS,
             limit=limit,
             offset=offset,
@@ -497,13 +499,13 @@ class DatabaseService:
         """Return a page of agreements from the ``UMOWACPC`` table.
 
         Like :meth:`fetch_clients` this is a hand-picked projection
-        (:data:`AGREEMENT_FIELDS`) of the physical table, so the printing
+        (:data:`AGREEMENT_COLUMNS`) of the physical table, so the printing
         parameters (``FRAPAR*``, ``FRANAZ*``/``IDMAG*``) and per-item prices stay
         out of the payload unless the endpoint is extended explicitly.
         """
         page = self._projection_page(
             AGREEMENTS_TABLE,
-            AGREEMENT_FIELDS,
+            AGREEMENT_COLUMNS,
             AGREEMENT_SEARCH_COLUMNS,
             limit=limit,
             offset=offset,
@@ -523,7 +525,7 @@ class DatabaseService:
     ) -> dict[str, Any]:
         """Return a page of machines (installed devices) from ``MASZYNA``.
 
-        The third curated projection (:data:`MACHINE_FIELDS`) of a wide
+        The third curated projection (:data:`MACHINE_COLUMNS`) of a wide
         physical table: the generic ``DETAL*`` slots, the per-copy price
         matrix (``KOPIA_*``, ``A3_*``, ``WYDRUK_*``, ``SKAN_*``, ``TRYB_*``,
         ``TK``/``TC``/``TM``/``TY``), the ``KOSZTY_STALE*`` variants and the
@@ -532,7 +534,7 @@ class DatabaseService:
         """
         page = self._projection_page(
             MACHINES_TABLE,
-            MACHINE_FIELDS,
+            MACHINE_COLUMNS,
             MACHINE_SEARCH_COLUMNS,
             limit=limit,
             offset=offset,
@@ -555,7 +557,7 @@ class DatabaseService:
         ``ZLECENIE`` is the widest table of the schema and Firebird caps a
         statement message at 64 KB, so this endpoint avoids both traps:
 
-        * :data:`ORDER_FIELDS` is a hand-picked projection instead of
+        * :data:`ORDER_COLUMNS` is a hand-picked projection instead of
           ``SELECT *``, which keeps the fetch message small;
         * :data:`ORDER_SEARCH_COLUMNS` holds fewer columns than
           :data:`ks_adapter.sql.MAX_SEARCH_COLUMNS`, because every ``search``
@@ -568,7 +570,7 @@ class DatabaseService:
         """
         page = self._projection_page(
             ORDERS_TABLE,
-            ORDER_FIELDS,
+            ORDER_COLUMNS,
             ORDER_SEARCH_COLUMNS,
             limit=limit,
             offset=offset,
@@ -589,7 +591,7 @@ class DatabaseService:
         """Return a page of invoices (sales documents) from ``FAKTURA``.
 
         ``FAKTURA`` is the invoice header, not the document: the positions live
-        in ``FPOZYCJA`` and are not exposed.  :data:`INVOICE_FIELDS` therefore
+        in ``FPOZYCJA`` and are not exposed.  :data:`INVOICE_COLUMNS` therefore
         keeps document identity, links, the contractor snapshot, dates and the
         PLN/foreign-currency totals, while the per-VAT-rate matrix and the
         bookkeeping columns are skipped.
@@ -599,7 +601,7 @@ class DatabaseService:
         """
         page = self._projection_page(
             INVOICES_TABLE,
-            INVOICE_FIELDS,
+            INVOICE_COLUMNS,
             INVOICE_SEARCH_COLUMNS,
             limit=limit,
             offset=offset,
@@ -613,7 +615,7 @@ class DatabaseService:
     def _projection_page(
         self,
         table: str,
-        fields: Sequence[tuple[str, str]],
+        columns: Sequence[str],
         search_columns: Sequence[str],
         *,
         limit: int | None,
@@ -626,28 +628,25 @@ class DatabaseService:
 
         Shared implementation of ``/clients``, ``/agreements``,
         ``/machines``, ``/orders`` and ``/invoices``: selects only the
-        ``fields`` that exist in the database,
+        ``columns`` that exist in the database,
         applies the optional ``search`` substring, orders by ``order_columns``
         (first available wins) and returns ``total``/``count``/``limit``/
-        ``offset`` plus ``rows`` keyed by the JSON aliases.
+        ``offset`` plus ``rows`` keyed by the lower-cased column names, so the
+        JSON speaks the same Polish vocabulary as the database.
         """
         info = self.schema.get(table)
         limit = self.check_limit(limit)
         if offset < 0:
             raise InvalidRequest("'offset' must not be negative")
 
-        selected = [
-            (column, alias)
-            for column, alias in fields
-            if column.upper() in info.column_map
-        ]
+        selected = [column for column in columns if column.upper() in info.column_map]
         if not selected:
             raise InvalidRequest(
                 f"Table '{info.name}' does not contain the expected {label} columns"
             )
 
         where_sql, params = build_search(search, info.column_map, search_columns)
-        select_sql = ", ".join(quote_identifier(column) for column, _ in selected)
+        select_sql = ", ".join(quote_identifier(column) for column in selected)
         table_sql = quote_identifier(info.name)
         order_sql = self._default_order_clause(info, order_columns)
         count_sql = f"SELECT COUNT(*) FROM {table_sql}{where_sql}"
@@ -667,15 +666,15 @@ class DatabaseService:
             finally:
                 cursor.close()
 
-        aliases = [alias for _, alias in selected]
+        keys = [column.lower() for column in selected]
         rows = [
             {
-                alias: to_jsonable(
+                key: to_jsonable(
                     value,
                     decimal_as_string=self.settings.api.decimal_as_string,
                     blob_encoding=self.settings.api.blob_encoding,
                 )
-                for alias, value in zip(aliases, raw_row)
+                for key, value in zip(keys, raw_row)
             }
             for raw_row in raw_rows
         ]
@@ -735,7 +734,7 @@ class DatabaseService:
         }
 
     # -- writes -----------------------------------------------------------
-    def create_client(self, *, name: str) -> dict[str, Any]:
+    def create_client(self, *, nazwa: str) -> dict[str, Any]:
         """Insert a contractor into ``KLIENT`` and return the stored row.
 
         ``NAZWA`` is the only value the caller supplies: the ``BEFORE INSERT``
@@ -744,7 +743,8 @@ class DatabaseService:
         and ``ID_ODDZIAL`` falls back to its column default, so a single-column
         ``INSERT`` satisfies every NOT NULL constraint.  ``RETURNING`` hands the
         generated keys back inside the same transaction and the response is the
-        same projection ``GET /clients`` serves.
+        same projection ``GET /clients`` serves, keyed by the lower-cased column
+        names.
 
         Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
         """
@@ -752,28 +752,23 @@ class DatabaseService:
             raise WritesDisabled(
                 "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
             )
-        value = name.strip() if isinstance(name, str) else ""
+        value = nazwa.strip() if isinstance(nazwa, str) else ""
         if not value:
-            raise InvalidRequest("'name' must not be empty")
+            raise InvalidRequest("'nazwa' must not be empty")
         if len(value) > CLIENT_NAME_MAX_LENGTH:
             raise InvalidRequest(
-                f"'name' must not be longer than {CLIENT_NAME_MAX_LENGTH} characters"
+                f"'nazwa' must not be longer than {CLIENT_NAME_MAX_LENGTH} characters"
             )
 
         info = self.schema.get(CLIENTS_TABLE)
         selected = [
-            (column, alias)
-            for column, alias in CLIENT_FIELDS
-            if column.upper() in info.column_map
+            column for column in CLIENT_COLUMNS if column.upper() in info.column_map
         ]
-        aliases = [alias for _, alias in selected]
-        if "name" not in aliases:
+        if "NAZWA" not in selected:
             raise InvalidRequest(
                 f"Table '{info.name}' does not contain the expected client columns"
             )
-        statement = build_insert(
-            info.name, ["NAZWA"], returning=[column for column, _ in selected]
-        )
+        statement = build_insert(info.name, ["NAZWA"], returning=selected)
 
         with self.pool.write_session() as connection:
             cursor = connection.cursor()
@@ -788,12 +783,12 @@ class DatabaseService:
                 f"Firebird did not return the row inserted into '{info.name}'"
             )
         return {
-            alias: to_jsonable(
+            column.lower(): to_jsonable(
                 cell,
                 decimal_as_string=self.settings.api.decimal_as_string,
                 blob_encoding=self.settings.api.blob_encoding,
             )
-            for alias, cell in zip(aliases, raw_row)
+            for column, cell in zip(selected, raw_row)
         }
 
     # -- helpers ----------------------------------------------------------

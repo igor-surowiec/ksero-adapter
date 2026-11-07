@@ -29,7 +29,7 @@ get wrong.
 4. **Respect Firebird's 64 KB statement-message limit.** More than
    `sql.MAX_SEARCH_COLUMNS` (63) `CAST(? AS VARCHAR(1024))` parameters in one
    statement make the server answer `-204 Implementation limit exceeded`. That
-   is why the curated endpoints use hand-picked `*_FIELDS` /
+   is why the curated endpoints use hand-picked `*_COLUMNS` /
    `*_SEARCH_COLUMNS` instead of `SELECT *` on wide tables.
 5. **Settings are whitelisted.** A new key needs `config._ALLOWED_KEYS`, a
    dataclass field, parsing in `_build_settings` (plus `_ENV_OVERRIDES` if it
@@ -85,16 +85,18 @@ marker.
 
 ### Add a field to a curated endpoint (`/clients`, `/agreements`, ...)
 
-1. Append the `("COLUMN", "json_name")` pair to the matching `*_FIELDS`
-   constant in `service.py` and, if it must be searchable, the column to
-   `*_SEARCH_COLUMNS` **within budget** - the suite asserts the budget.
-2. Add the optional field to the Pydantic model in `schemas.py`.
+1. Append the column name to the matching `*_COLUMNS` constant in `service.py`
+   and, if it must be searchable, the column to `*_SEARCH_COLUMNS` **within
+   budget** - the suite asserts the budget.
+2. Add the optional field to the Pydantic model in `schemas.py`, named after
+   the column in lower case (`NAZWA` -> `nazwa`): the JSON key *is* the column
+   name, there is no alias table to update.
 3. Extend the stub `TableInfo` in the tests if the assertions need values.
 4. Leave the docstrings alone unless the documented meaning changed.
 
 ### Add a curated endpoint
 
-1. Constants in `service.py`: `X_TABLE`, `X_FIELDS`, `X_SEARCH_COLUMNS`.
+1. Constants in `service.py`: `X_TABLE`, `X_COLUMNS`, `X_SEARCH_COLUMNS`.
 2. `fetch_x()` that calls `_projection_page(...)` and renames `rows` to the
    plural key.
 3. Models in `schemas.py` and a route in `api.create_router` with

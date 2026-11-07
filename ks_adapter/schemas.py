@@ -57,36 +57,34 @@ class RowPage(BaseModel):
 
 
 class Client(BaseModel):
-    """A contractor (client) stored in the ``KLIENT`` table."""
+    """A contractor (client) stored in the ``KLIENT`` table.
 
-    id: int | None = Field(
-        default=None, description="Surrogate key (KLIENT.ID_KLIENT_TABLE)"
+    Fields are named after the database columns, lower-cased (``NAZWA`` ->
+    ``nazwa``), so the payload needs no translation layer.
+    """
+
+    id_klient_table: int | None = Field(default=None, description="Surrogate key")
+    id_klient: int | None = Field(default=None, description="Business identifier")
+    nazwa: str | None = Field(default=None, description="Full contractor name")
+    nazwa_s: str | None = Field(default=None, description="Short (invoice) name")
+    nip: str | None = Field(default=None, description="Tax identifier")
+    regon: str | None = Field(default=None, description="Statistical number")
+    adres: str | None = Field(default=None, description="Street address")
+    kod: str | None = Field(default=None, description="Postal code")
+    poczta: str | None = Field(default=None, description="City")
+    wojewodztwo: int | None = Field(
+        default=None, description="Province dictionary id"
     )
-    client_id: int | None = Field(
-        default=None, description="Business identifier (KLIENT.ID_KLIENT)"
-    )
-    name: str | None = Field(default=None, description="Full name (NAZWA)")
-    short_name: str | None = Field(default=None, description="Short name (NAZWA_S)")
-    nip: str | None = None
-    regon: str | None = None
-    address: str | None = None
-    postcode: str | None = None
-    city: str | None = None
-    province: int | None = Field(
-        default=None, description="Province dictionary id (WOJEWODZTWO)"
-    )
-    phone: str | None = None
-    email: str | None = None
-    website: str | None = None
-    type: str | None = Field(default=None, description="Client type (TYP)")
-    active: str | None = Field(default=None, description="Raw AKTYWNY flag")
-    payment_method: str | None = Field(default=None, description="PLATNOSC")
-    payment_days: int | None = Field(
-        default=None, description="Payment term in days (TERMIN)"
-    )
-    discount: int | None = Field(default=None, description="Discount (RABAT)")
-    last_contact: str | None = Field(
-        default=None, description="ISO date of the last activity (OSTATNIO)"
+    telefon: str | None = Field(default=None, description="Phone number")
+    e_mail: str | None = Field(default=None, description="E-mail address")
+    www: str | None = Field(default=None, description="Website")
+    typ: str | None = Field(default=None, description="Client type")
+    aktywny: str | None = Field(default=None, description="Raw active flag")
+    platnosc: str | None = Field(default=None, description="Payment method")
+    termin: int | None = Field(default=None, description="Payment term in days")
+    rabat: int | None = Field(default=None, description="Discount")
+    ostatnio: str | None = Field(
+        default=None, description="ISO date of the last activity"
     )
 
 
@@ -103,13 +101,13 @@ class ClientPage(BaseModel):
 class ClientCreate(BaseModel):
     """Payload of ``POST /clients``.
 
-    The name is the only value the caller has to supply: Firebird assigns the
+    ``nazwa`` is the only value the caller has to supply: Firebird assigns the
     surrogate and business keys from their generators and the ``ID_FIRMA`` /
     ``ID_ODDZIAL`` defaults (or the ``INS_KLIENT_RECORD`` trigger), so no other
     column of ``KLIENT`` is required.
     """
 
-    name: str = Field(
+    nazwa: str = Field(
         min_length=1,
         max_length=500,
         description=(
@@ -122,44 +120,34 @@ class ClientCreate(BaseModel):
 class Agreement(BaseModel):
     """A service agreement (contract) stored in the ``UMOWACPC`` table."""
 
-    id: int | None = Field(
-        default=None, description="Surrogate key (UMOWACPC.ID_UMOWACPC_TABLE)"
-    )
-    agreement_id: int | None = Field(
-        default=None, description="Business identifier (UMOWACPC.ID_UMOWACPC)"
-    )
-    branch_id: int | None = Field(default=None, description="Branch (ID_ODDZIAL)")
-    client_id: int | None = Field(default=None, description="Client (ID_KLIENT)")
-    recipient_id: int | None = Field(
-        default=None, description="Recipient (ID_ODBIORCA)"
-    )
-    company_id: int | None = Field(default=None, description="Company (ID_FIRMA)")
-    number: str | None = Field(default=None, description="Agreement number (UMOWA)")
-    type: str | None = Field(default=None, description="Agreement type (TYP)")
-    salesperson: str | None = Field(default=None, description="HANDLOWIEC")
-    supervisor: str | None = Field(default=None, description="OPIEKUN")
-    supervisor_email: str | None = Field(default=None, description="OPIEKUNMAIL")
-    supervisor_phone: str | None = Field(default=None, description="OPIEKUNTEL")
-    start_date: str | None = Field(
-        default=None, description="ISO start date (U_START)"
-    )
-    end_date: str | None = Field(default=None, description="ISO end date (U_STOP)")
-    terms: str | None = Field(default=None, description="Contract terms (WARUNKI)")
-    notes: str | None = Field(default=None, description="Notes (UWAGI)")
-    costs: DecimalValue | None = Field(default=None, description="KOSZTY")
-    revenue: DecimalValue | None = Field(default=None, description="PRZYCHODY")
-    profit: DecimalValue | None = Field(default=None, description="WYNIK")
-    discount: DecimalValue | None = Field(default=None, description="RABAT")
-    payment_method: str | None = Field(default=None, description="PLATNOSC")
-    payment_days: int | None = Field(
-        default=None, description="Payment term in days (TERMIN)"
-    )
-    active: str | None = Field(default=None, description="Raw AKTYWNA flag")
-    pages_mono: int | None = Field(default=None, description="STRONY_MONO")
-    pages_color: int | None = Field(default=None, description="STRONY_KOLOR")
-    scans: int | None = Field(default=None, description="SKANY")
-    invoice_email: str | None = Field(default=None, description="FRAEMAIL")
-    file: str | None = Field(default=None, description="Linked file (PLIK)")
+    id_umowacpc_table: int | None = Field(default=None, description="Surrogate key")
+    id_umowacpc: int | None = Field(default=None, description="Business identifier")
+    id_oddzial: int | None = Field(default=None, description="Branch")
+    id_klient: int | None = Field(default=None, description="Contractor")
+    id_odbiorca: int | None = Field(default=None, description="Recipient")
+    id_firma: int | None = Field(default=None, description="Company")
+    umowa: str | None = Field(default=None, description="Agreement number")
+    typ: str | None = Field(default=None, description="Agreement type")
+    handlowiec: str | None = Field(default=None, description="Salesperson")
+    opiekun: str | None = Field(default=None, description="Supervisor")
+    opiekunmail: str | None = Field(default=None, description="Supervisor e-mail")
+    opiekuntel: str | None = Field(default=None, description="Supervisor phone")
+    u_start: str | None = Field(default=None, description="ISO start date")
+    u_stop: str | None = Field(default=None, description="ISO end date")
+    warunki: str | None = Field(default=None, description="Contract terms")
+    uwagi: str | None = Field(default=None, description="Notes")
+    koszty: DecimalValue | None = Field(default=None, description="Costs")
+    przychody: DecimalValue | None = Field(default=None, description="Revenue")
+    wynik: DecimalValue | None = Field(default=None, description="Profit")
+    rabat: DecimalValue | None = Field(default=None, description="Discount")
+    platnosc: str | None = Field(default=None, description="Payment method")
+    termin: int | None = Field(default=None, description="Payment term in days")
+    aktywna: str | None = Field(default=None, description="Raw active flag")
+    strony_mono: int | None = Field(default=None, description="Mono pages")
+    strony_kolor: int | None = Field(default=None, description="Colour pages")
+    skany: int | None = Field(default=None, description="Scans")
+    fraemail: str | None = Field(default=None, description="Invoice e-mail")
+    plik: str | None = Field(default=None, description="Linked file")
 
 
 class AgreementPage(BaseModel):
@@ -175,86 +163,58 @@ class AgreementPage(BaseModel):
 class Machine(BaseModel):
     """A machine (installed device) stored in the ``MASZYNA`` table."""
 
-    id: int | None = Field(
-        default=None, description="Surrogate key (MASZYNA.ID_MASZYNA_TABLE)"
+    id_maszyna_table: int | None = Field(default=None, description="Surrogate key")
+    id_maszyna: int | None = Field(default=None, description="Business identifier")
+    id_klient: int | None = Field(default=None, description="Owner")
+    id_oddzial: int | None = Field(default=None, description="Branch")
+    id_firma: int | None = Field(default=None, description="Company")
+    id_model: int | None = Field(default=None, description="Model dictionary")
+    id_umowacpc: int | None = Field(default=None, description="Servicing agreement")
+    marka: str | None = Field(default=None, description="Manufacturer")
+    model: str | None = Field(default=None, description="Model name")
+    grupa: str | None = Field(default=None, description="Device group")
+    typ: str | None = Field(default=None, description="Device type")
+    rodzaj_us: str | None = Field(default=None, description="Billing model")
+    serial: str | None = Field(default=None, description="Serial number")
+    serial2: str | None = Field(default=None, description="Secondary serial")
+    ewidencja: str | None = Field(default=None, description="Asset record number")
+    stoi: str | None = Field(default=None, description="Placement inside the site")
+    adres: str | None = Field(default=None, description="Site address")
+    miejscowosc: str | None = Field(default=None, description="Site city")
+    email: str | None = Field(default=None, description="Notification e-mail")
+    instalacja: str | None = Field(default=None, description="ISO installation date")
+    gwarancja: int | None = Field(default=None, description="Warranty length in months")
+    gwarancja_do: str | None = Field(default=None, description="ISO warranty end date")
+    last_m: str | None = Field(
+        default=None, description="ISO date of the last meter reading"
     )
-    machine_id: int | None = Field(
-        default=None, description="Business identifier (MASZYNA.ID_MASZYNA)"
+    licznik: int | None = Field(default=None, description="Meter value")
+    licznika3: int | None = Field(default=None, description="A3 meter")
+    licznik_total: int | None = Field(default=None, description="Lifetime counter")
+    bezlicz: int | None = Field(default=None, description="Raw 'no meter' flag")
+    last_w: str | None = Field(
+        default=None, description="ISO date of the last service"
     )
-    client_id: int | None = Field(default=None, description="Owner (ID_KLIENT)")
-    branch_id: int | None = Field(default=None, description="Branch (ID_ODDZIAL)")
-    company_id: int | None = Field(default=None, description="Company (ID_FIRMA)")
-    model_id: int | None = Field(
-        default=None, description="Model dictionary (ID_MODEL)"
+    next_w: str | None = Field(
+        default=None, description="ISO date of the next service"
     )
-    agreement_id: int | None = Field(
-        default=None, description="Servicing agreement (ID_UMOWACPC)"
+    konserwacja: str | None = Field(
+        default=None, description="ISO date of the next maintenance"
     )
-    brand: str | None = Field(default=None, description="Manufacturer (MARKA)")
-    model: str | None = Field(default=None, description="Model name (MODEL)")
-    group: str | None = Field(default=None, description="Device group (GRUPA)")
-    type: str | None = Field(default=None, description="Device type (TYP)")
-    service_type: str | None = Field(
-        default=None, description="Billing model (RODZAJ_US)"
+    przeglady: int | None = Field(
+        default=None, description="Number of performed services"
     )
-    serial: str | None = Field(default=None, description="Serial number (SERIAL)")
-    serial_alt: str | None = Field(
-        default=None, description="Secondary serial (SERIAL2)"
+    technik: str | None = Field(default=None, description="Technician")
+    zalecenia: str | None = Field(
+        default=None, description="Service recommendations"
     )
-    inventory_no: str | None = Field(
-        default=None, description="Asset record number (EWIDENCJA)"
-    )
-    location: str | None = Field(
-        default=None, description="Placement inside the site (STOI)"
-    )
-    address: str | None = Field(default=None, description="Site address (ADRES)")
-    city: str | None = Field(default=None, description="Site city (MIEJSCOWOSC)")
-    email: str | None = Field(
-        default=None, description="Notification e-mail (EMAIL)"
-    )
-    install_date: str | None = Field(
-        default=None, description="ISO installation date (INSTALACJA)"
-    )
-    warranty_months: int | None = Field(
-        default=None, description="Warranty length in months (GWARANCJA)"
-    )
-    warranty_until: str | None = Field(
-        default=None, description="ISO warranty end date (GWARANCJA_DO)"
-    )
-    last_reading_date: str | None = Field(
-        default=None, description="ISO date of the last meter reading (LAST_M)"
-    )
-    counter: int | None = Field(default=None, description="Meter value (LICZNIK)")
-    counter_a3: int | None = Field(default=None, description="A3 meter (LICZNIKA3)")
-    counter_total: int | None = Field(
-        default=None, description="Lifetime counter (LICZNIK_TOTAL)"
-    )
-    meterless: int | None = Field(
-        default=None, description="Raw 'no meter' flag (BEZLICZ)"
-    )
-    last_service_date: str | None = Field(
-        default=None, description="ISO date of the last service (LAST_W)"
-    )
-    next_service_date: str | None = Field(
-        default=None, description="ISO date of the next service (NEXT_W)"
-    )
-    maintenance_date: str | None = Field(
-        default=None, description="ISO date of the next maintenance (KONSERWACJA)"
-    )
-    service_count: int | None = Field(
-        default=None, description="Number of performed services (PRZEGLADY)"
-    )
-    technician: str | None = Field(default=None, description="Technician (TECHNIK)")
-    recommendations: str | None = Field(
-        default=None, description="Service recommendations (ZALECENIA)"
-    )
-    notes: str | None = Field(default=None, description="Notes (UWAGI)")
-    fee: DecimalValue | None = Field(default=None, description="Unit fee (OPLATA)")
-    costs: DecimalValue | None = Field(default=None, description="KOSZTY")
-    revenue: DecimalValue | None = Field(default=None, description="PRZYCHODY")
-    profit: DecimalValue | None = Field(default=None, description="WYNIK")
-    active: str | None = Field(default=None, description="Raw AKTYWNA flag")
-    color: str | None = Field(default=None, description="Raw KOLOROWA flag")
+    uwagi: str | None = Field(default=None, description="Notes")
+    oplata: DecimalValue | None = Field(default=None, description="Unit fee")
+    koszty: DecimalValue | None = Field(default=None, description="Costs")
+    przychody: DecimalValue | None = Field(default=None, description="Revenue")
+    wynik: DecimalValue | None = Field(default=None, description="Profit")
+    aktywna: str | None = Field(default=None, description="Raw active flag")
+    kolorowa: str | None = Field(default=None, description="Raw colour flag")
 
 
 class MachinePage(BaseModel):
@@ -270,113 +230,75 @@ class MachinePage(BaseModel):
 class Order(BaseModel):
     """A service order (job) stored in the ``ZLECENIE`` table."""
 
-    id: int | None = Field(
-        default=None, description="Surrogate key (ZLECENIE.ID_ZLECENIE_TABLE)"
+    id_zlecenie_table: int | None = Field(default=None, description="Surrogate key")
+    id_zlecenie: int | None = Field(default=None, description="Business identifier")
+    rok: int | None = Field(default=None, description="Order year")
+    stan: str | None = Field(default=None, description="Raw status code")
+    id_firma: int | None = Field(default=None, description="Company")
+    id_oddzial: int | None = Field(default=None, description="Branch")
+    id_klient: int | None = Field(default=None, description="Contractor")
+    id_maszyna: int | None = Field(default=None, description="Device")
+    nazwa: str | None = Field(
+        default=None, description="Client name copied onto the order"
     )
-    order_id: int | None = Field(
-        default=None, description="Business identifier (ZLECENIE.ID_ZLECENIE)"
+    adres: str | None = Field(default=None, description="Address")
+    kod: str | None = Field(default=None, description="Postal code")
+    poczta: str | None = Field(default=None, description="City")
+    telefon: str | None = Field(default=None, description="Phone number")
+    e_mail: str | None = Field(default=None, description="E-mail address")
+    stoi: str | None = Field(default=None, description="Placement inside the site")
+    marka: str | None = Field(default=None, description="Device brand")
+    model: str | None = Field(default=None, description="Device model")
+    serial: str | None = Field(default=None, description="Serial number")
+    ewidencja: str | None = Field(default=None, description="Asset number")
+    data: str | None = Field(
+        default=None, description="ISO date the order was created"
     )
-    year: int | None = Field(default=None, description="Order year (ROK)")
-    status: str | None = Field(default=None, description="Raw status code (STAN)")
-    company_id: int | None = Field(default=None, description="Company (ID_FIRMA)")
-    branch_id: int | None = Field(default=None, description="Branch (ID_ODDZIAL)")
-    client_id: int | None = Field(default=None, description="Contractor (ID_KLIENT)")
-    machine_id: int | None = Field(default=None, description="Device (ID_MASZYNA)")
-    client_name: str | None = Field(
-        default=None, description="Client name copied onto the order (NAZWA)"
+    termin: str | None = Field(default=None, description="ISO deadline")
+    data_z: str | None = Field(default=None, description="ISO planned visit date")
+    godzina_plan: str | None = Field(default=None, description="Planned visit time")
+    data_przy: str | None = Field(
+        default=None, description="ISO date the device was accepted"
     )
-    address: str | None = Field(default=None, description="ADRES")
-    postcode: str | None = Field(default=None, description="KOD")
-    city: str | None = Field(default=None, description="POCZTA")
-    phone: str | None = Field(default=None, description="TELEFON")
-    email: str | None = Field(default=None, description="E_MAIL")
-    location: str | None = Field(
-        default=None, description="Placement inside the site (STOI)"
+    data_wyda: str | None = Field(
+        default=None, description="ISO date the device was released"
     )
-    brand: str | None = Field(default=None, description="Device brand (MARKA)")
-    model: str | None = Field(default=None, description="Device model (MODEL)")
-    serial: str | None = Field(default=None, description="Serial number (SERIAL)")
-    inventory_no: str | None = Field(
-        default=None, description="Asset number (EWIDENCJA)"
+    data_start: str | None = Field(default=None, description="ISO date work started")
+    data_stop: str | None = Field(default=None, description="ISO date work finished")
+    rodzaj_us: str | None = Field(default=None, description="Service type")
+    uszkodzenie: str | None = Field(default=None, description="Reported damage")
+    problem: str | None = Field(default=None, description="Reported problem")
+    diagnoza: str | None = Field(default=None, description="Diagnosis")
+    wykonanie: str | None = Field(default=None, description="Work performed")
+    zalecenia: str | None = Field(
+        default=None, description="Service recommendations"
     )
-    order_date: str | None = Field(
-        default=None, description="ISO date the order was created (DATA)"
-    )
-    due_date: str | None = Field(
-        default=None, description="ISO deadline (TERMIN)"
-    )
-    scheduled_date: str | None = Field(
-        default=None, description="ISO planned visit date (DATA_Z)"
-    )
-    planned_time: str | None = Field(
-        default=None, description="Planned visit time (GODZINA_PLAN)"
-    )
-    accepted_on: str | None = Field(
-        default=None, description="ISO date the device was accepted (DATA_PRZY)"
-    )
-    issued_on: str | None = Field(
-        default=None, description="ISO date the device was released (DATA_WYDA)"
-    )
-    started_on: str | None = Field(
-        default=None, description="ISO date work started (DATA_START)"
-    )
-    finished_on: str | None = Field(
-        default=None, description="ISO date work finished (DATA_STOP)"
-    )
-    service_type: str | None = Field(
-        default=None, description="Service type (RODZAJ_US)"
-    )
-    damage: str | None = Field(default=None, description="Reported damage (USZKODZENIE)")
-    problem: str | None = Field(
-        default=None, description="Reported problem (PROBLEM)"
-    )
-    diagnosis: str | None = Field(default=None, description="Diagnosis (DIAGNOZA)")
-    work_done: str | None = Field(
-        default=None, description="Work performed (WYKONANIE)"
-    )
-    recommendations: str | None = Field(
-        default=None, description="Service recommendations (ZALECENIA)"
-    )
-    notes: str | None = Field(default=None, description="Notes (UWAGI)")
-    technician: str | None = Field(default=None, description="Technician (TECHNIK)")
-    reported_by: str | None = Field(
-        default=None, description="Person who reported the fault (ZGLASZA)"
+    uwagi: str | None = Field(default=None, description="Notes")
+    technik: str | None = Field(default=None, description="Technician")
+    zglasza: str | None = Field(
+        default=None, description="Person who reported the fault"
     )
     operator: str | None = Field(
-        default=None, description="Audit string of the author (OPERATOR)"
+        default=None, description="Audit string of the author"
     )
-    signed_by: str | None = Field(
-        default=None, description="Person accepting the job (SIGNWHO)"
+    signwho: str | None = Field(default=None, description="Person accepting the job")
+    signwhen: str | None = Field(
+        default=None, description="ISO timestamp of the acceptance"
     )
-    signed_at: str | None = Field(
-        default=None, description="ISO timestamp of the acceptance (SIGNWHEN)"
-    )
-    counter: int | None = Field(default=None, description="Meter value (LICZNIK)")
-    counter_a3: int | None = Field(default=None, description="A3 meter (LICZNIKA3)")
-    counter_total: int | None = Field(
-        default=None, description="Lifetime counter (LICZNIK_TOTAL)"
-    )
-    labour: DecimalValue | None = Field(
-        default=None, description="Labour cost (ROBOCIZNA)"
-    )
-    travel: DecimalValue | None = Field(default=None, description="Travel cost (DOJAZD)")
-    parts: DecimalValue | None = Field(default=None, description="Parts cost (CZESCI)")
-    materials: DecimalValue | None = Field(
-        default=None, description="Materials cost (MATERIALY)"
-    )
-    net: DecimalValue | None = Field(default=None, description="Net total (NETTO)")
-    vat: DecimalValue | None = Field(default=None, description="VAT amount (VAT)")
-    gross: DecimalValue | None = Field(default=None, description="Gross total (BRUTTO)")
-    prepayment: DecimalValue | None = Field(
-        default=None, description="Prepayment (ZALICZKA)"
-    )
-    payment_method: str | None = Field(
-        default=None, description="Payment method (PLATNOSC)"
-    )
-    invoice_number: str | None = Field(
-        default=None, description="Linked invoice number (FAKTURA)"
-    )
-    file: str | None = Field(default=None, description="Linked document (PLIK)")
+    licznik: int | None = Field(default=None, description="Meter value")
+    licznika3: int | None = Field(default=None, description="A3 meter")
+    licznik_total: int | None = Field(default=None, description="Lifetime counter")
+    robocizna: DecimalValue | None = Field(default=None, description="Labour cost")
+    dojazd: DecimalValue | None = Field(default=None, description="Travel cost")
+    czesci: DecimalValue | None = Field(default=None, description="Parts cost")
+    materialy: DecimalValue | None = Field(default=None, description="Materials cost")
+    netto: DecimalValue | None = Field(default=None, description="Net total")
+    vat: DecimalValue | None = Field(default=None, description="VAT amount")
+    brutto: DecimalValue | None = Field(default=None, description="Gross total")
+    zaliczka: DecimalValue | None = Field(default=None, description="Prepayment")
+    platnosc: str | None = Field(default=None, description="Payment method")
+    faktura: str | None = Field(default=None, description="Linked invoice number")
+    plik: str | None = Field(default=None, description="Linked document")
 
 
 class OrderPage(BaseModel):
@@ -392,144 +314,101 @@ class OrderPage(BaseModel):
 class Invoice(BaseModel):
     """An invoice (sales document header) stored in the ``FAKTURA`` table."""
 
-    id: int | None = Field(
-        default=None, description="Surrogate key (FAKTURA.ID_FAKTURA_TABLE)"
+    id_faktura_table: int | None = Field(default=None, description="Surrogate key")
+    id_oddzial: int | None = Field(default=None, description="Branch")
+    id_firma: int | None = Field(default=None, description="Company")
+    id_magazyn: int | None = Field(default=None, description="Warehouse")
+    id_klient: int | None = Field(default=None, description="Contractor")
+    id_odbiorca: int | None = Field(default=None, description="Goods recipient")
+    id_maszyna: int | None = Field(default=None, description="Device")
+    id_zlecenie: int | None = Field(default=None, description="Linked service order")
+    rok_zlecenia: int | None = Field(
+        default=None, description="Year of the linked service order"
     )
-    branch_id: int | None = Field(default=None, description="Branch (ID_ODDZIAL)")
-    company_id: int | None = Field(default=None, description="Company (ID_FIRMA)")
-    warehouse_id: int | None = Field(default=None, description="Warehouse (ID_MAGAZYN)")
-    client_id: int | None = Field(default=None, description="Contractor (ID_KLIENT)")
-    recipient_id: int | None = Field(
-        default=None, description="Goods recipient (ID_ODBIORCA)"
+    id_kosztorys: int | None = Field(default=None, description="Linked estimate")
+    id_wz: int | None = Field(default=None, description="Linked goods issue document")
+    id_umowa: int | None = Field(default=None, description="Linked contract")
+    id_umowacpc: int | None = Field(
+        default=None, description="Linked service agreement"
     )
-    machine_id: int | None = Field(default=None, description="Device (ID_MASZYNA)")
-    service_order_id: int | None = Field(
-        default=None, description="Linked service order (ID_ZLECENIE)"
+    id_zamowienie: int | None = Field(default=None, description="Linked purchase order")
+    id_paczka: int | None = Field(default=None, description="Linked parcel")
+    id_account: int | None = Field(
+        default=None, description="Bank account used for payment"
     )
-    service_order_year: int | None = Field(
-        default=None, description="Year of the linked service order (ROK_ZLECENIA)"
+    id_curr: int | None = Field(default=None, description="Currency dictionary entry")
+    nazwa: str | None = Field(
+        default=None, description="Contractor name copied onto the document"
     )
-    estimate_id: int | None = Field(
-        default=None, description="Linked estimate (ID_KOSZTORYS)"
+    adres: str | None = Field(default=None, description="Address")
+    kod: str | None = Field(default=None, description="Postal code")
+    poczta: str | None = Field(default=None, description="City")
+    nip: str | None = Field(default=None, description="Tax identifier")
+    kod_kraju: str | None = Field(default=None, description="Country code")
+    rodzaj_dok: str | None = Field(
+        default=None, description="Document kind, e.g. invoice or correction"
     )
-    wz_id: int | None = Field(
-        default=None, description="Linked goods issue document (ID_WZ)"
+    numer: str | None = Field(default=None, description="Document number")
+    nr_kory: str | None = Field(
+        default=None, description="Number of the corrected document"
     )
-    contract_id: int | None = Field(
-        default=None, description="Linked contract (ID_UMOWA)"
+    korekta: str | None = Field(default=None, description="Correction number")
+    nr_par: str | None = Field(default=None, description="Linked receipt number")
+    ccode: str | None = Field(default=None, description="Currency code, e.g. PLN/EUR")
+    miejsce_wyst: str | None = Field(default=None, description="Place of issue")
+    wystawil: str | None = Field(default=None, description="Issued by")
+    odebral: str | None = Field(default=None, description="Received by")
+    data_sprz: str | None = Field(default=None, description="ISO date of sale")
+    data_wyst: str | None = Field(default=None, description="ISO issue date")
+    data_plat: str | None = Field(default=None, description="ISO due date")
+    data_zapl: str | None = Field(default=None, description="ISO paid date")
+    data_kory: str | None = Field(default=None, description="ISO correction date")
+    data_zam: str | None = Field(
+        default=None, description="ISO date of the linked order"
     )
-    agreement_id: int | None = Field(
-        default=None, description="Linked service agreement (ID_UMOWACPC)"
+    dni_plat: int | None = Field(default=None, description="Payment term in days")
+    platnosc: str | None = Field(default=None, description="Payment method")
+    wal_kurs: DecimalValue | None = Field(
+        default=None, description="Foreign-currency rate"
     )
-    purchase_order_id: int | None = Field(
-        default=None, description="Linked purchase order (ID_ZAMOWIENIE)"
+    suma_netto: DecimalValue | None = Field(default=None, description="Net total")
+    suma_vat: DecimalValue | None = Field(default=None, description="VAT total")
+    suma_brutto: DecimalValue | None = Field(default=None, description="Gross total")
+    zaplacono: DecimalValue | None = Field(default=None, description="Amount paid")
+    zaliczka: DecimalValue | None = Field(
+        default=None, description="Prepayment deducted"
     )
-    parcel_id: int | None = Field(default=None, description="Linked parcel (ID_PACZKA)")
-    account_id: int | None = Field(
-        default=None, description="Bank account used for payment (ID_ACCOUNT)"
+    do_zaplaty: DecimalValue | None = Field(
+        default=None, description="Outstanding amount"
     )
-    currency_id: int | None = Field(
-        default=None, description="Currency dictionary entry (ID_CURR)"
+    pokor_netto: DecimalValue | None = Field(
+        default=None, description="Net total after the correction"
     )
-    client_name: str | None = Field(
-        default=None, description="Contractor name copied onto the document (NAZWA)"
+    pokor_vat: DecimalValue | None = Field(
+        default=None, description="VAT total after the correction"
     )
-    address: str | None = Field(default=None, description="ADRES")
-    postcode: str | None = Field(default=None, description="KOD")
-    city: str | None = Field(default=None, description="POCZTA")
-    nip: str | None = Field(default=None, description="Tax identifier (NIP)")
-    country_code: str | None = Field(default=None, description="KOD_KRAJU")
-    document_type: str | None = Field(
-        default=None,
-        description="Document kind, e.g. invoice or correction (RODZAJ_DOK)",
+    pokor_brutto: DecimalValue | None = Field(
+        default=None, description="Gross total after the correction"
     )
-    number: str | None = Field(default=None, description="Document number (NUMER)")
-    corrected_number: str | None = Field(
-        default=None, description="Number of the corrected document (NR_KORY)"
+    wal_netto: DecimalValue | None = Field(
+        default=None, description="Net total in the foreign currency"
     )
-    correction_number: str | None = Field(
-        default=None, description="Correction document number (KOREKTA)"
+    wal_vat: DecimalValue | None = Field(
+        default=None, description="VAT total in the foreign currency"
     )
-    receipt_number: str | None = Field(
-        default=None, description="Linked receipt number (NR_PAR)"
+    wal_brutto: DecimalValue | None = Field(
+        default=None, description="Gross total in the foreign currency"
     )
-    currency_code: str | None = Field(
-        default=None, description="Currency code, e.g. PLN/EUR (CCODE)"
+    wal_zaplacono: DecimalValue | None = Field(
+        default=None, description="Amount paid in the foreign currency"
     )
-    issue_place: str | None = Field(
-        default=None, description="Place of issue (MIEJSCE_WYST)"
+    wal_do_zaplaty: DecimalValue | None = Field(
+        default=None, description="Outstanding amount in the currency"
     )
-    issued_by: str | None = Field(default=None, description="Issued by (WYSTAWIL)")
-    received_by: str | None = Field(default=None, description="Received by (ODEBRAL)")
-    sale_date: str | None = Field(
-        default=None, description="ISO date of sale (DATA_SPRZ)"
-    )
-    issue_date: str | None = Field(
-        default=None, description="ISO issue date (DATA_WYST)"
-    )
-    due_date: str | None = Field(default=None, description="ISO due date (DATA_PLAT)")
-    paid_date: str | None = Field(default=None, description="ISO paid date (DATA_ZAPL)")
-    correction_date: str | None = Field(
-        default=None, description="ISO correction date (DATA_KORY)"
-    )
-    purchase_order_date: str | None = Field(
-        default=None, description="ISO date of the linked order (DATA_ZAM)"
-    )
-    payment_days: int | None = Field(
-        default=None, description="Payment term in days (DNI_PLAT)"
-    )
-    payment_method: str | None = Field(
-        default=None, description="Payment method (PLATNOSC)"
-    )
-    exchange_rate: DecimalValue | None = Field(
-        default=None, description="Foreign-currency rate (WAL_KURS)"
-    )
-    net: DecimalValue | None = Field(default=None, description="Net total (SUMA_NETTO)")
-    vat: DecimalValue | None = Field(default=None, description="VAT total (SUMA_VAT)")
-    gross: DecimalValue | None = Field(
-        default=None, description="Gross total (SUMA_BRUTTO)"
-    )
-    paid: DecimalValue | None = Field(
-        default=None, description="Amount paid (ZAPLACONO)"
-    )
-    prepayment: DecimalValue | None = Field(
-        default=None, description="Prepayment deducted (ZALICZKA)"
-    )
-    amount_due: DecimalValue | None = Field(
-        default=None, description="Outstanding amount (DO_ZAPLATY)"
-    )
-    corrected_net: DecimalValue | None = Field(
-        default=None, description="Net total after the correction (POKOR_NETTO)"
-    )
-    corrected_vat: DecimalValue | None = Field(
-        default=None, description="VAT total after the correction (POKOR_VAT)"
-    )
-    corrected_gross: DecimalValue | None = Field(
-        default=None, description="Gross total after the correction (POKOR_BRUTTO)"
-    )
-    net_currency: DecimalValue | None = Field(
-        default=None, description="Net total in the foreign currency (WAL_NETTO)"
-    )
-    vat_currency: DecimalValue | None = Field(
-        default=None, description="VAT total in the foreign currency (WAL_VAT)"
-    )
-    gross_currency: DecimalValue | None = Field(
-        default=None, description="Gross total in the foreign currency (WAL_BRUTTO)"
-    )
-    paid_currency: DecimalValue | None = Field(
-        default=None, description="Amount paid in the foreign currency (WAL_ZAPLACONO)"
-    )
-    amount_due_currency: DecimalValue | None = Field(
-        default=None, description="Outstanding amount in the currency (WAL_DO_ZAPLATY)"
-    )
-    status: str | None = Field(default=None, description="Raw status code (STAN)")
-    notes: str | None = Field(default=None, description="Notes (UWAGI)")
-    purchase_order_number: str | None = Field(
-        default=None, description="Linked order number (ZAMOWIENIE)"
-    )
-    contract_number: str | None = Field(
-        default=None, description="Linked contract number (DOUMOWY)"
-    )
+    stan: str | None = Field(default=None, description="Raw status code")
+    uwagi: str | None = Field(default=None, description="Notes")
+    zamowienie: str | None = Field(default=None, description="Linked order number")
+    doumowy: str | None = Field(default=None, description="Linked contract number")
 
 
 class InvoicePage(BaseModel):

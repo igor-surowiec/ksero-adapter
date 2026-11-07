@@ -55,7 +55,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/tables/{table}` | columns with readable SQL types |
 | `GET` | `/tables/{table}/rows` | page of rows, sorting, JSON filters |
 | `GET` | `/clients` | contractors (`KLIENT`) |
-| `POST` | `/clients` | create a contractor (`KLIENT`), only `name` required |
+| `POST` | `/clients` | create a contractor (`KLIENT`), only `nazwa` required |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
@@ -70,13 +70,18 @@ escaped wildcards, and return a hand-picked column subset that stays inside
 Firebird's 64 KB statement-message limit - the reason `ZLECENIE` is never
 `SELECT *`ed. `/invoices` returns invoice headers only; the positions live in
 `FPOZYCJA` and are not exposed.
+The curated endpoints keep the **original Polish column names**: every row is
+keyed by the lower-cased database column (`nazwa`, `nazwa_s`, `id_klient`,
+`kod`, `poczta`, `suma_brutto`, ...), so client code needs no name translation.
+Only the envelope keys (`total`, `count`, `limit`, `offset`, `clients`,
+`agreements`, ...) stay English.
 Every response field is documented in the OpenAPI schema (`/docs` or
 `/openapi.json`).
 
-`POST /clients` is the only writing route: it takes `{"name": "..."}`, inserts one
+`POST /clients` is the only writing route: it takes `{"nazwa": "..."}`, inserts one
 `KLIENT` row and returns it with `201`. The database fills in the rest - the
 `INS_KLIENT_RECORD` trigger assigns `ID_KLIENT_TABLE`, `ID_KLIENT` and `ID_FIRMA`,
-`ID_ODDZIAL` falls back to `1`, and every other column stays null - so `name`
+`ID_ODDZIAL` falls back to `1`, and every other column stays null - so `nazwa`
 (`NAZWA`, trimmed, at most 500 characters) is the only value you have to send. It
 uses the same `X-API-Key` as the read routes and answers `403` unless
 `api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
@@ -86,7 +91,7 @@ curl 'http://127.0.0.1:8000/api/v1/tables/KLIENCI/rows?limit=25&order_by=NAZWA%2
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
 curl 'http://127.0.0.1:8000/api/v1/invoices?limit=20&search=2026'
 curl -X POST http://127.0.0.1:8000/api/v1/query -H 'Content-Type: application/json' -d '{"sql": "SELECT ID, NAZWA FROM KLIENCI WHERE ID > ? ORDER BY ID", "limit": 10, "parameters": [100]}'
-curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"name": "ACME Sp. z o.o."}'
+curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"nazwa": "ACME Sp. z o.o."}'
 ```
 
 `filters` is a JSON object whose values are either a literal (means `eq`) or an
