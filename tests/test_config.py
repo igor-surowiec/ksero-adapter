@@ -31,6 +31,7 @@ KS_VARS = [
     "KS_LOG_LEVEL",
     "KS_RELOAD",
     "KS_API_KEY",
+    "KS_ALLOW_WRITES",
     "KS_DEFAULT_LIMIT",
     "KS_MAX_LIMIT",
     "KS_MAX_QUERY_ROWS",
@@ -120,6 +121,21 @@ def test_ks_overrides_replace_file_values(
     assert settings.database.pool_size == 9
     assert settings.server.port == 9000
     assert settings.api.api_key == "key-from-env"
+
+
+def test_allow_writes_defaults_to_false(tmp_path: Path) -> None:
+    assert load_config(write_config(tmp_path, MINIMAL)).api.allow_writes is False
+
+
+def test_allow_writes_comes_from_the_file_and_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = write_config(tmp_path, MINIMAL + "api:\n  allow_writes: true\n")
+
+    assert load_config(config).api.allow_writes is True
+
+    monkeypatch.setenv("KS_ALLOW_WRITES", "false")
+    assert load_config(config).api.allow_writes is False
 
 
 def test_ks_config_variable_selects_file(

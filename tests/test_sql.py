@@ -10,6 +10,7 @@ from ks_adapter.sql import (
     MAX_MESSAGE_BYTES,
     MAX_SEARCH_COLUMNS,
     Filter,
+    build_insert,
     build_search,
     build_where,
     ensure_read_only,
@@ -29,6 +30,20 @@ def test_quote_identifier() -> None:
 def test_quote_identifier_rejects_empty() -> None:
     with pytest.raises(InvalidRequest):
         quote_identifier("")
+
+
+def test_build_insert_quotes_identifiers_and_binds_values() -> None:
+    assert build_insert("KLIENT", ["NAZWA"]) == (
+        'INSERT INTO "KLIENT" ("NAZWA") VALUES (?)'
+    )
+    assert build_insert('we"ird', ["A", "B"], returning=["A"]) == (
+        'INSERT INTO "we""ird" ("A", "B") VALUES (?, ?) RETURNING "A"'
+    )
+
+
+def test_build_insert_requires_a_column() -> None:
+    with pytest.raises(InvalidRequest):
+        build_insert("KLIENT", [])
 
 
 @pytest.mark.parametrize(

@@ -37,6 +37,12 @@ class AuthenticationError(AdapterError):
     status_code = 401
 
 
+class WritesDisabled(AdapterError):
+    """The write endpoints are turned off by ``api.allow_writes``."""
+
+    status_code = 403
+
+
 class TableNotFound(AdapterError):
     """A referenced table or view does not exist."""
 

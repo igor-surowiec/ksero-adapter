@@ -13,6 +13,7 @@ from ks_adapter.errors import (
     InvalidRequest,
     QueryNotAllowed,
     TableNotFound,
+    WritesDisabled,
 )
 from ks_adapter.schema import ColumnInfo, TableInfo
 from ks_adapter.service import DatabaseService
@@ -184,6 +185,8 @@ class _Pool:
         self.responses = responses
         self.executed: list[tuple[str, Any]] = []
         self.fetch_sizes: list[int] = []
+        self.committed = 0
+        self.rolled_back = 0
 
     @contextmanager
     def session(self) -> Iterator[_Connection]:
@@ -191,6 +194,20 @@ class _Pool:
         yield _Connection(cursor)
         self.executed.extend(cursor.executed)
         self.fetch_sizes.extend(cursor.fetch_sizes)
+
+    @contextmanager
+    def write_session(self) -> Iterator[_Connection]:
+        cursor = _Cursor(self.responses)
+        try:
+            yield _Connection(cursor)
+        except BaseException:
+            self.rolled_back += 1
+            raise
+        else:
+            self.committed += 1
+        finally:
+            self.executed.extend(cursor.executed)
+            self.fetch_sizes.extend(cursor.fetch_sizes)
 
     def ping(self) -> str:
         return "Firebird 2.5.9"
@@ -1101,3 +1118,118 @@ def test_invoice_search_list_stays_within_the_firebird_message_limit() -> None:
 
     assert len(INVOICE_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
     assert len(set(INVOICE_SEARCH_COLUMNS)) == len(INVOICE_SEARCH_COLUMNS)
+
+
+def test_create_client_inserts_only_the_name() -> None:
+    import datetime as dt
+
+    pool = _Pool(
+        [
+            (
+                [
+                    ("ID_KLIENT_TABLE",),
+                    ("ID_KLIENT",),
+                    ("NAZWA",),
+                    ("NIP",),
+                    ("OSTATNIO",),
+                ],
+                [(5, 4, "ACME", None, dt.date(2026, 1, 2))],
+            )
+        ]
+    )
+    service = make_projection_service(pool, KLIENT, allow_writes=True)
+
+    created = service.create_client(name="  ACME  ")
+
+    assert pool.executed == [
+        (
+            'INSERT INTO "KLIENT" ("NAZWA") VALUES (?) RETURNING '
+            '"ID_KLIENT_TABLE", "ID_KLIENT", "NAZWA", "NIP", "OSTATNIO"',
+            ["ACME"],
+        )
+    ]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+    assert created == {
+        "id": 5,
+        "client_id": 4,
+        "name": "ACME",
+        "nip": None,
+        "last_contact": "2026-01-02",
+    }
+
+
+def test_create_client_is_rejected_when_writes_are_disabled() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT)
+
+    with pytest.raises(WritesDisabled):
+        service.create_client(name="ACME")
+
+    assert pool.executed == []
+    assert pool.committed == 0
+
+
+def test_create_client_validates_the_name() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT, allow_writes=True)
+
+    with pytest.raises(InvalidRequest):
+        service.create_client(name="")
+    with pytest.raises(InvalidRequest):
+        service.create_client(name="   ")
+    with pytest.raises(InvalidRequest):
+        service.create_client(name="x" * 501)
+
+    assert pool.executed == []
+
+
+def test_create_client_skips_columns_missing_from_the_schema() -> None:
+    narrow = TableInfo(
+        name="KLIENT",
+        kind="table",
+        description=None,
+        columns=(
+            ColumnInfo("ID_KLIENT_TABLE", 0, "INTEGER", False),
+            ColumnInfo("NAZWA", 1, "VARCHAR(500)", True),
+        ),
+    )
+    pool = _Pool([([("ID_KLIENT_TABLE",), ("NAZWA",)], [(7, "ACME")])])
+    service = make_projection_service(pool, narrow, allow_writes=True)
+
+    assert service.create_client(name="ACME") == {"id": 7, "name": "ACME"}
+    assert pool.executed[0][0] == (
+        'INSERT INTO "KLIENT" ("NAZWA") VALUES (?) RETURNING '
+        '"ID_KLIENT_TABLE", "NAZWA"'
+    )
+
+
+def test_create_client_requires_the_name_column() -> None:
+    broken = TableInfo(
+        name="KLIENT",
+        kind="table",
+        description=None,
+        columns=(
+            ColumnInfo("ID_KLIENT_TABLE", 0, "INTEGER", False),
+            ColumnInfo("ID_KLIENT", 1, "INTEGER", False),
+        ),
+    )
+    pool = _Pool([])
+    service = make_projection_service(pool, broken, allow_writes=True)
+
+    with pytest.raises(InvalidRequest):
+        service.create_client(name="ACME")
+
+    assert pool.executed == []
+
+
+def test_create_client_rolls_back_when_the_insert_fails() -> None:
+    pool = _Pool([])  # no scripted response -> the cursor raises
+    service = make_projection_service(pool, KLIENT, allow_writes=True)
+
+    with pytest.raises(IndexError):
+        service.create_client(name="ACME")
+
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+

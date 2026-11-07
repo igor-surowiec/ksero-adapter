@@ -121,7 +121,7 @@ class ServerSettings:
 
 @dataclass(frozen=True)
 class ApiSettings:
-    """Behaviour of the read-only HTTP API."""
+    """Behaviour of the HTTP API."""
 
     prefix: str = "/api/v1"
     default_limit: int = 50
@@ -131,6 +131,9 @@ class ApiSettings:
     blob_encoding: str = "cp1250"
     decimal_as_string: bool = False
     api_key: str | None = None
+    #: Master switch for the write endpoints (``POST /clients``).  Off by
+    #: default, so an adapter built without the setting stays read-only.
+    allow_writes: bool = False
     cors_origins: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -185,6 +188,7 @@ _ENV_OVERRIDES: dict[str, dict[str, str]] = {
     },
     "api": {
         "api_key": "KS_API_KEY",
+        "allow_writes": "KS_ALLOW_WRITES",
         "default_limit": "KS_DEFAULT_LIMIT",
         "max_limit": "KS_MAX_LIMIT",
         "max_query_rows": "KS_MAX_QUERY_ROWS",
@@ -216,6 +220,7 @@ _ALLOWED_KEYS = {
         "blob_encoding",
         "decimal_as_string",
         "api_key",
+        "allow_writes",
         "cors_origins",
     },
 }
@@ -328,6 +333,7 @@ def _build_settings(data: Mapping[str, Any], config_path: Path) -> AppSettings:
         blob_encoding=_str(api_section, "api.blob_encoding", "cp1250"),
         decimal_as_string=_bool(api_section, "api.decimal_as_string", False),
         api_key=_optional_str(api_section, "api.api_key"),
+        allow_writes=_bool(api_section, "api.allow_writes", False),
         cors_origins=_str_tuple(api_section, "api.cors_origins"),
     )
     return AppSettings(

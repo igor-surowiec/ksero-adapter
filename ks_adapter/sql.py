@@ -63,6 +63,36 @@ def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def build_insert(
+    table: str,
+    columns: Sequence[str],
+    *,
+    returning: Sequence[str] = (),
+) -> str:
+    """Return a parameterised ``INSERT`` statement for ``columns``.
+
+    Only identifiers are interpolated, and only through :func:`quote_identifier`;
+    the values stay ``?`` placeholders that the caller binds separately.  This is
+    the single helper that produces a writing statement - every statement that
+    comes from a request still passes :func:`ensure_read_only`.
+
+    ``returning`` appends an ``INSERT ... RETURNING`` column list, so Firebird
+    hands back the keys its generators, defaults and triggers filled in without a
+    second query (and without a race on the new row).
+    """
+    if not columns:
+        raise InvalidRequest("An INSERT needs at least one column")
+    names = ", ".join(quote_identifier(column) for column in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    statement = (
+        f"INSERT INTO {quote_identifier(table)} ({names}) VALUES ({placeholders})"
+    )
+    if returning:
+        targets = ", ".join(quote_identifier(column) for column in returning)
+        statement = f"{statement} RETURNING {targets}"
+    return statement
+
+
 def ensure_read_only(sql: str) -> str:
     """Validate that ``sql`` is a single read-only SELECT/WITH statement.
 

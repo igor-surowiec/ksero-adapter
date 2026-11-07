@@ -1,8 +1,10 @@
 # ks-adapter — architecture
 
-`ks-adapter` is a small **read-only HTTP gateway in front of a Firebird database**
+`ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
-`python -m ks_adapter`, which serves a FastAPI app through uvicorn.
+`python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
+read-only by default: the single writing route (`POST /clients`) is disabled
+unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
 plus a short change checklist at the end. Installation, configuration keys and the full
@@ -69,9 +71,10 @@ response ◄──────────────────────�
 
 - Sync handlers run in Starlette's threadpool, so blocking `fdb` calls never block the
   event loop; concurrency is bounded by the threadpool and `database.pool_size`.
-- Each service call borrows **one** connection and always rolls it back, so no
-  transaction or record lock outlives a request — that, plus the query guard, is what
-  makes the adapter read-only.
+- Each service call borrows **one** connection. `pool.session()` always rolls it back,
+  so no transaction or record lock outlives a read request — together with the query
+  guard that is what keeps every read read-only. `pool.write_session()` (used only by
+  `POST /clients`) commits on success and rolls back on any exception.
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
@@ -103,11 +106,18 @@ Variations:
   and are not exposed, and the per-VAT-rate matrix, the pre-correction block, the
   `F_*` marker flags and the synchronisation bookkeeping columns are left out of the
   projection. Ordering is `DATA_WYST, ID_FAKTURA_TABLE` so pages stay stable.
-- `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
-  operator or column → `400`) and `_order_clause()` for `order_by`.
 - `POST /query` runs `sql.ensure_read_only()` (single `SELECT`/`WITH`; write/DDL/session
   keywords and a second statement rejected), caps rows at `api.max_query_rows`, and
   fetches one extra row only to set `truncated`.
+- `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
+  operator or column → `400`) and `_order_clause()` for `order_by`.
+- `POST /clients` is the only trace that writes. `WritesDisabled` → `403` when
+  `api.allow_writes` is off, `InvalidRequest` → `400` for a blank or over-long name,
+  then `build_insert("KLIENT", ["NAZWA"], returning=...)` with the trimmed name as the
+  single bound parameter, executed inside `pool.write_session()`. `RETURNING` hands
+  back the row the `INS_KLIENT_RECORD` trigger completed (the generated
+  `ID_KLIENT_TABLE`/`ID_KLIENT` and `ID_FIRMA`), so the answer is the same `Client`
+  projection `GET /clients` serves, with `201`.
 
 ### 1.4 Errors and shutdown
 
@@ -115,6 +125,7 @@ Variations:
 | --- | --- | --- |
 | `sql.py`, `service.py` | `InvalidRequest`, `QueryNotAllowed`, `ColumnNotFound` | `400` |
 | `api.py` | `AuthenticationError` | `401` |
+| `service.py` (writes) | `WritesDisabled` | `403` |
 | `schema.py` | `TableNotFound` | `404` |
 | `pool.py`, `schema.py` | `DatabaseUnavailable` | `503` |
 | request/response models | Pydantic `ValidationError` | `422` |
@@ -153,11 +164,12 @@ unauthenticated `GET /` liveness route.
 `get_service()`, `require_api_key(settings)` (returns the `check_api_key` dependency,
 `hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
-`POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `GET /agreements`,
-`GET /machines`, `GET /orders`, `GET /invoices`, `POST /query` (relative to
-`api.prefix`); everything except the first two is protected by the shared `protected`
-dependency list. Parameter bounds are generated from the settings; handlers return
-plain dicts and the declared `response_model` does validation + OpenAPI.
+`POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
+`GET /agreements`, `GET /machines`, `GET /orders`, `GET /invoices`, `POST /query`
+(relative to `api.prefix`); everything except the first two is protected by the
+shared `protected` dependency list. Parameter bounds are generated from the
+settings; handlers return plain dicts and the declared `response_model` does
+validation + OpenAPI.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
@@ -170,15 +182,17 @@ any working directory; unknown YAML keys raise instead of being silently ignored
 
 **`errors.py`** — the error hierarchy that couples failures to HTTP semantics:
 `AdapterError` (500, base) → `InvalidRequest`, `QueryNotAllowed`, `ColumnNotFound`
-(400), `AuthenticationError` (401), `TableNotFound` (404), `DatabaseUnavailable` (503).
+(400), `AuthenticationError` (401), `WritesDisabled` (403), `TableNotFound` (404),
+`DatabaseUnavailable` (503).
 
 **`pool.py`** — the only module that calls `fdb.connect()`. `connect(settings)` (dsn,
 credentials, charset, `sql_dialect=3`, optional `fb_library_name`) and `ConnectionPool`:
 a lock-guarded LIFO queue of at most `pool_size` connections with `session()` (borrow →
-yield → rollback → return), `ping()` (`SELECT 1 FROM RDB$DATABASE` + `server_version`),
-`stats` (`created`/`idle`/`capacity` for `/health`) and `close()`. Saturation waits up to
-`acquire_timeout` and then raises `DatabaseUnavailable` (503, never a hang); broken
-connections are discarded, so the pool survives a Firebird restart.
+yield → rollback → return), `write_session()` (borrow → yield → **commit**, or rollback
+when the block raises; the only committing code path), `ping()` (a trivial query plus
+`server_version`), `stats` (`created`/`idle`/`capacity` for `/health`) and `close()`.
+Saturation waits up to `acquire_timeout` and then raises `DatabaseUnavailable` (503,
+never a hang); broken connections are discarded, so the pool survives a restart.
 
 **`schema.py`** — catalog introspection + TTL cache. Reads `RDB$RELATIONS` and
 `RDB$RELATION_FIELDS`/`RDB$FIELDS`/`RDB$CHARACTER_SETS`, maps `RDB$FIELD_TYPE` ids to SQL
@@ -190,8 +204,9 @@ search and sort column must pass.
 
 **`sql.py`** — all SQL text assembly. `quote_identifier()` (``"NAME"``, embedded quotes
 doubled), `ensure_read_only()`, `strip_sql_literals()` (drops comments and `'...'`/`"..."`
-literals before the keyword scan), `Filter`, `parse_filters()`, `build_where()`,
-`build_search()`. Operators: `eq, ne, gt, ge, lt, le, like, contains, startswith,
+literals before the keyword scan), `build_insert()` (quoted column list, `?` placeholders,
+optional `RETURNING`), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
+Operators: `eq, ne, gt, ge, lt, le, like, contains, startswith,
 endswith, in, isnull, notnull`. Values are always `?` parameters; `LIKE` patterns escape
 `\ % _`, use `ESCAPE '\'`, and wrap the parameter in `CAST(? AS VARCHAR(1024))` to avoid
 Firebird's "arithmetic exception" on long patterns compared with short columns.
@@ -210,7 +225,7 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`run_query()`, plus the helpers `check_limit()`, `_order_clause()`,
+`create_client()`, `run_query()`, plus the helpers `check_limit()`, `_order_clause()`,
 `_projection_page()`, `_default_order_clause()` and `_check_parameters()`. Module
 constants define the curated read models:
 `CLIENTS_TABLE`/`CLIENT_FIELDS` + `CLIENT_SEARCH_COLUMNS`,
@@ -223,9 +238,16 @@ tables are very wide. `_projection_page()` is the shared implementation of `/cli
 `/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page query on
 one connection, columns missing from the connected database silently skipped.
 
+`create_client()` is the only writing method: it refuses with `WritesDisabled` unless
+`api.allow_writes` is set, trims and validates the name (`CLIENT_NAME_MAX_LENGTH` mirrors
+the width of `NAZWA`), inserts a single column through `sql.build_insert()` with a
+`RETURNING` list built from `CLIENT_FIELDS`, and executes it inside
+`pool.write_session()` so the row is committed or the transaction rolled back.
+
 **`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
 `HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
+`ClientCreate` (the `POST /clients` body: a single `name`),
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection
 fields are all optional, so a missing column never breaks validation, and money columns
@@ -237,19 +259,21 @@ use `DecimalValue = float | str`.
 reload), `database` (path, host, port, user, password, charset, client_library,
 pool_size, acquire_timeout, health_check, check_path) and `api` (prefix, default_limit,
 max_limit, max_query_rows, schema_cache_ttl, blob_encoding, decimal_as_string, api_key,
-cors_origins). Values are `${VAR:-default}` placeholders, so the file documents the
-defaults while the environment stays authoritative (this is how the password is supplied
-without committing it). `database.path` is deliberately relative and is resolved against
-the project root, `database.charset` and `api.blob_encoding` must describe the same
-encoding, an empty `api_key` disables authentication and empty `cors_origins` skips the
-middleware.
+allow_writes, cors_origins). Values are `${VAR:-default}` placeholders, so the file
+documents the defaults while the environment stays authoritative (this is how the
+password is supplied without committing it). `database.path` is deliberately relative and
+is resolved against the project root, `database.charset` and `api.blob_encoding` must
+describe the same encoding, an empty `api_key` disables authentication, empty
+`cors_origins` skips the middleware and `allow_writes` is the switch that turns the
+`POST /clients` write path on.
 
 **`tests/`** — the pytest suite: `conftest.py` (settings fixture, `FakeService`, app and
 client fixtures), `test_api.py` (routes through `TestClient`), `test_service.py`
 (scripted fake cursors: generated SQL, bound parameters, field mapping, limits),
 `test_config.py`, `test_sql.py`, `test_serialization.py`, `test_schema.py` (pure unit
 tests of one module each), and `test_integration.py` (marked `integration`, runs only
-when `KS_TEST_DB_PATH` points at a real database).
+when `KS_TEST_DB_PATH` points at a real database; the write tests additionally need
+`KS_TEST_DB_WRITABLE=1` because they insert and delete a disposable contractor).
 
 **`pytest.ini`** — limits collection to `tests/` and registers the `integration` marker.
 
@@ -264,8 +288,8 @@ when `KS_TEST_DB_PATH` points at a real database).
 (environment variables), the endpoint table with a few `curl` examples, error codes and
 tests. Read it first; this file is the companion for implementers.
 
-**`AGENTS.md`** — the working agreement for AI agents and new contributors: the
-read-only/parameter/64 KB invariants, environment commands, layout, recipes for adding a
+**`AGENTS.md`** — the working agreement for AI agents and new contributors: the write
+switch/parameter/64 KB invariants, environment commands, layout, recipes for adding a
 field, an endpoint or a setting, testing rules, style and the definition of done.
 
 **`*.fdb`** — the Firebird database file the adapter reads. A binary, git-ignored asset
@@ -281,6 +305,10 @@ another database needs no code change.
 1. **New endpoint** — method in `service.py` (reuse `_projection_page()` for a curated
    view), response model in `schemas.py`, route inside `api.create_router` with
    `dependencies=protected`, then a row in the `README.md` endpoint table.
+   A **writing** endpoint is the exception: it must be gated by `api.allow_writes`
+   (raise `errors.WritesDisabled` → `403`), build its statement with
+   `sql.build_insert()`, run it inside `pool.write_session()` only, and be covered by a
+   `KS_TEST_DB_WRITABLE=1` integration test that cleans up after itself.
 2. **New field on a projection** — add the `(column, alias)` pair to the matching
    `*_FIELDS` constant (plus `*_SEARCH_COLUMNS` if it must be searchable) and the optional
    field in the Pydantic model; response details live in the OpenAPI schema, so `README.md`

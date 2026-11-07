@@ -1,4 +1,8 @@
-"""Business logic for browsing tables and running read-only queries."""
+"""Business logic for reading tables and for the curated client insert.
+
+Every read path builds a single ``SELECT``/``WITH`` statement;
+:meth:`DatabaseService.create_client` is the only method that writes.
+"""
 
 from __future__ import annotations
 
@@ -7,11 +11,12 @@ import time
 from typing import Any, Sequence
 
 from .config import AppSettings
-from .errors import ColumnNotFound, InvalidRequest
+from .errors import ColumnNotFound, DatabaseUnavailable, InvalidRequest, WritesDisabled
 from .pool import ConnectionPool
 from .schema import SchemaCache, TableInfo
 from .serialization import serialize_rows, to_jsonable
 from .sql import (
+    build_insert,
     build_search,
     build_where,
     ensure_read_only,
@@ -58,6 +63,10 @@ CLIENT_SEARCH_COLUMNS: tuple[str, ...] = (
     "KOD",
     "POCZTA",
 )
+
+#: Width of ``KLIENT.NAZWA``.  Longer names are rejected up front, otherwise
+#: Firebird answers with a string-truncation error instead of a clear message.
+CLIENT_NAME_MAX_LENGTH = 500
 
 #: Table holding service agreements (contracts) in the BAZAMS schema.
 AGREEMENTS_TABLE = "UMOWACPC"
@@ -361,7 +370,7 @@ INVOICE_SEARCH_COLUMNS: tuple[str, ...] = (
 
 
 class DatabaseService:
-    """Read-only facade over a Firebird database."""
+    """Facade over a Firebird database: read models plus one curated write."""
 
     def __init__(
         self, settings: AppSettings, pool: ConnectionPool | None = None
@@ -723,6 +732,68 @@ class DatabaseService:
             "rows": rows,
             "row_count": len(rows),
             "truncated": truncated,
+        }
+
+    # -- writes -----------------------------------------------------------
+    def create_client(self, *, name: str) -> dict[str, Any]:
+        """Insert a contractor into ``KLIENT`` and return the stored row.
+
+        ``NAZWA`` is the only value the caller supplies: the ``BEFORE INSERT``
+        trigger ``INS_KLIENT_RECORD`` fills the mandatory ``ID_KLIENT_TABLE`` and
+        ``ID_KLIENT`` from their generators and ``ID_FIRMA`` with its constant,
+        and ``ID_ODDZIAL`` falls back to its column default, so a single-column
+        ``INSERT`` satisfies every NOT NULL constraint.  ``RETURNING`` hands the
+        generated keys back inside the same transaction and the response is the
+        same projection ``GET /clients`` serves.
+
+        Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
+        """
+        if not self.settings.api.allow_writes:
+            raise WritesDisabled(
+                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
+            )
+        value = name.strip() if isinstance(name, str) else ""
+        if not value:
+            raise InvalidRequest("'name' must not be empty")
+        if len(value) > CLIENT_NAME_MAX_LENGTH:
+            raise InvalidRequest(
+                f"'name' must not be longer than {CLIENT_NAME_MAX_LENGTH} characters"
+            )
+
+        info = self.schema.get(CLIENTS_TABLE)
+        selected = [
+            (column, alias)
+            for column, alias in CLIENT_FIELDS
+            if column.upper() in info.column_map
+        ]
+        aliases = [alias for _, alias in selected]
+        if "name" not in aliases:
+            raise InvalidRequest(
+                f"Table '{info.name}' does not contain the expected client columns"
+            )
+        statement = build_insert(
+            info.name, ["NAZWA"], returning=[column for column, _ in selected]
+        )
+
+        with self.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(statement, [value])
+                raw_row = cursor.fetchone()
+            finally:
+                cursor.close()
+
+        if raw_row is None:  # pragma: no cover - RETURNING always yields a row
+            raise DatabaseUnavailable(
+                f"Firebird did not return the row inserted into '{info.name}'"
+            )
+        return {
+            alias: to_jsonable(
+                cell,
+                decimal_as_string=self.settings.api.decimal_as_string,
+                blob_encoding=self.settings.api.blob_encoding,
+            )
+            for alias, cell in zip(aliases, raw_row)
         }
 
     # -- helpers ----------------------------------------------------------

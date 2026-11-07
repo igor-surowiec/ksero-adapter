@@ -100,6 +100,25 @@ class ClientPage(BaseModel):
     clients: list[Client]
 
 
+class ClientCreate(BaseModel):
+    """Payload of ``POST /clients``.
+
+    The name is the only value the caller has to supply: Firebird assigns the
+    surrogate and business keys from their generators and the ``ID_FIRMA`` /
+    ``ID_ODDZIAL`` defaults (or the ``INS_KLIENT_RECORD`` trigger), so no other
+    column of ``KLIENT`` is required.
+    """
+
+    name: str = Field(
+        min_length=1,
+        max_length=500,
+        description=(
+            "Full contractor name, stored in KLIENT.NAZWA; surrounding "
+            "whitespace is trimmed"
+        ),
+    )
+
+
 class Agreement(BaseModel):
     """A service agreement (contract) stored in the ``UMOWACPC`` table."""
 

@@ -132,6 +132,16 @@ class FakeService:
             ],
         }
 
+    def create_client(self, *, name: str) -> dict[str, Any]:
+        self.calls.append({"action": "create_client", "name": name})
+        return {
+            "id": 1001,
+            "client_id": 42,
+            "name": name,
+            "nip": None,
+            "last_contact": None,
+        }
+
     def fetch_agreements(
         self,
         *,

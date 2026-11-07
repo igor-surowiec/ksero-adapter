@@ -33,11 +33,12 @@ def connect(settings: DatabaseSettings) -> Any:
 
 
 class ConnectionPool:
-    """Small thread-safe pool of read-only Firebird connections.
+    """Small thread-safe pool of Firebird connections.
 
     Connections are never shared between threads at the same time.  Every
     connection borrowed through :meth:`session` is rolled back before it is
-    returned to the pool so no transaction state leaks between requests.
+    returned to the pool so no transaction state leaks between requests;
+    :meth:`write_session` commits instead and is the only way data is persisted.
     """
 
     def __init__(self, settings: DatabaseSettings) -> None:
@@ -68,6 +69,32 @@ class ConnectionPool:
             yield connection
         finally:
             self._release(connection)
+
+    @contextmanager
+    def write_session(self) -> Iterator[Any]:
+        """Borrow a connection for a write and commit when the block succeeds.
+
+        The transaction is committed only after the ``with`` block returns; an
+        exception during the block (or during the commit itself) rolls it back,
+        so a failed request never leaves half-written rows behind.  This is the
+        only place in the adapter that commits - ``session()`` keeps reading
+        requests read-only.
+        """
+        connection = self._acquire()
+        discarded = False
+        try:
+            yield connection
+            connection.commit()
+        except BaseException:
+            try:
+                connection.rollback()
+            except Exception:  # pragma: no cover - broken connection
+                self._discard(connection)
+                discarded = True
+            raise
+        finally:
+            if not discarded:
+                self._release(connection)
 
     def ping(self) -> str:
         """Execute a trivial query and return the server version string."""

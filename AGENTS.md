@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Guidance for AI agents (and new contributors) working on **ks-adapter**, a
-read-only FastAPI bridge in front of a Firebird database (Firebird 2.5,
-`WIN1250` Polish data; the `ZLECENIE` table alone has 154 columns).
+FastAPI bridge in front of a Firebird database (Firebird 2.5, `WIN1250` Polish
+data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
+`POST /clients` is the single opt-in write route.
 
 User documentation is [`README.md`](README.md), the flow and file-by-file
 reference is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Read both before
@@ -11,15 +12,20 @@ get wrong.
 
 ## Non-negotiable invariants
 
-1. **The API is read-only.** Every statement passes `sql.ensure_read_only()`;
-   never add an endpoint, option or scope that can write. New SQL must be a
-   single `SELECT`/`WITH`.
+1. **Reads are read-only.** Every read statement passes `sql.ensure_read_only()`
+   and must stay a single `SELECT`/`WITH`. The one exception is the curated
+   client insert (`POST /clients`): it is gated behind `api.allow_writes`
+   (`errors.WritesDisabled` → 403), its statement comes from
+   `sql.build_insert()`, and it runs **only** inside `pool.write_session()` -
+   never `pool.session()`, which always rolls back. Do not add another write
+   path without the same switch, the same builder and explicit tests.
 2. **Values are always parameters, never strings.** Emit `?` placeholders and
    pass the values separately; identifiers go through `sql.quote_identifier()`.
    Anything else is an injection bug.
 3. **All database work goes through `DatabaseService`** (`service.py`) and
-   `pool.session()`. Never call `fdb.connect()` from a route, service method or
-   test - `pool.connect()` is the only place that opens connections.
+   `pool.session()`/`pool.write_session()`. Never call `fdb.connect()` from a
+   route, service method or test - `pool.connect()` is the only place that opens
+   connections.
 4. **Respect Firebird's 64 KB statement-message limit.** More than
    `sql.MAX_SEARCH_COLUMNS` (63) `CAST(? AS VARCHAR(1024))` parameters in one
    statement make the server answer `-204 Implementation limit exceeded`. That
@@ -47,6 +53,8 @@ pip install -r requirements-dev.txt          # runtime deps + pytest + httpx
 .venv/Scripts/python.exe -m ks_adapter           # serve :8000, docs at /docs
 .venv/Scripts/python.exe -m pytest -q            # offline suite, no database
 KS_TEST_DB_PATH=BAZAMS.FDB .venv/Scripts/python.exe -m pytest -q  # + live DB
+KS_TEST_DB_PATH=BAZAMS.FDB KS_TEST_DB_WRITABLE=1 .venv/Scripts/python.exe -m pytest -q
+                                                 # + the create-client tests
 .venv/Scripts/python.exe -m pytest tests/test_api.py -q -k orders  # one test
 ```
 
@@ -59,10 +67,13 @@ marker.
 
 - `ks_adapter/api.py` - routes (`create_router`), `get_service`,
   `require_api_key`.
-- `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging.
-- `ks_adapter/sql.py` - read-only guard, filters, ordering, `LIKE` search.
+- `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging,
+  `create_client()` (the only write).
+- `ks_adapter/sql.py` - read-only guard, `build_insert()`, filters, ordering,
+  `LIKE` search.
 - `ks_adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
-- `ks_adapter/pool.py` - thread-safe connection pool (`session()`, `ping()`).
+- `ks_adapter/pool.py` - thread-safe connection pool (`session()`,
+  `write_session()`, `ping()`).
 - `ks_adapter/serialization.py` - Firebird to JSON types, `row_to_dict()`.
 - `ks_adapter/schemas.py` - Pydantic wire models, i.e. the OpenAPI contract.
 - `ks_adapter/config.py` - YAML + `${VAR}` + `KS_*` settings, validation.
@@ -98,6 +109,18 @@ marker.
 `_ENV_OVERRIDES`), then `config/config.yaml`, then the README env table when
 the variable is public.
 
+### Add a write
+
+1. Gate it: raise `errors.WritesDisabled` when `settings.api.allow_writes` is
+   off - never write while the switch is off.
+2. Build the statement with `sql.build_insert(table, columns, returning=...)`
+   and bind every value; never format a value into the SQL.
+3. Execute it inside `self.pool.write_session()` and only there: it commits on
+   success and rolls back on any exception.
+4. Give the offline suite a `_Pool.write_session()` case (`committed` /
+   `rolled_back`) plus an integration test behind `KS_TEST_DB_WRITABLE=1` that
+   deletes what it created.
+
 ## Testing rules
 
 - The default suite must pass **without a database**: `FakeService` for HTTP
@@ -106,9 +129,12 @@ the variable is public.
 - Live tests live in `tests/test_integration.py` behind the `integration`
   marker and `KS_TEST_DB_PATH`; run them after touching SQL, the pool or a
   curated view.
+- Write tests additionally need `KS_TEST_DB_WRITABLE=1` and must delete the row
+  they created (`delete_client()` in `test_integration.py`); never leave data in
+  the database the tests point at.
 - When behaviour depends on the generated statement, assert the SQL text and
   parameters (`pool.executed`); when touching search lists, assert the budget
-  constants.
+  constants. For writes also assert `pool.committed` / `pool.rolled_back`.
 - Keep `conftest.FakeService` in sync with new service methods - a missing
   method breaks unrelated tests.
 
@@ -126,7 +152,8 @@ the variable is public.
   code. **Keep them count-free** - no hard-coded column or test counts.
 - Documented module constants get a `#:` comment above them (`service.py`).
 - Errors: raise `errors.AdapterError` subclasses (`InvalidRequest` 400,
-  `AuthenticationError` 401, `TableNotFound` 404, `DatabaseUnavailable` 503).
+  `AuthenticationError` 401, `WritesDisabled` 403, `TableNotFound` 404,
+  `DatabaseUnavailable` 503).
   Handlers return plain dicts; `app.py` renders
   `{"detail": <message>, "error": <exception class>}`.
 - Comments explain *why* (Firebird quirks), never restate the code.

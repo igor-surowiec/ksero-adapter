@@ -4,10 +4,15 @@ Set ``KS_TEST_DB_PATH`` (optionally ``KS_TEST_DB_USER``, ``KS_TEST_DB_PASSWORD``
 ``KS_TEST_DB_CHARSET`` and ``KS_TEST_DB_CLIENT``) to enable them::
 
     KS_TEST_DB_PATH="BAZAMS.FDB" pytest tests/test_integration.py
+
+The write tests additionally need ``KS_TEST_DB_WRITABLE=1``: they insert a
+disposable contractor and delete it again, so they are never run by accident
+against a production database.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from typing import Iterator
 
@@ -22,10 +27,11 @@ from ks_adapter.config import (
     ServerSettings,
     resolve_database_path,
 )
-from ks_adapter.errors import QueryNotAllowed
+from ks_adapter.errors import QueryNotAllowed, WritesDisabled
 from ks_adapter.service import DatabaseService
 
 DB_PATH = os.environ.get("KS_TEST_DB_PATH")
+WRITABLE = os.environ.get("KS_TEST_DB_WRITABLE")
 
 pytestmark = [
     pytest.mark.integration,
@@ -33,6 +39,11 @@ pytestmark = [
         not DB_PATH, reason="set KS_TEST_DB_PATH to run integration tests"
     ),
 ]
+
+requires_writable = pytest.mark.skipif(
+    not (DB_PATH and WRITABLE),
+    reason="set KS_TEST_DB_PATH and KS_TEST_DB_WRITABLE=1 to run write tests",
+)
 
 
 @pytest.fixture(scope="module")
@@ -274,4 +285,68 @@ def test_invoice_columns_match_the_live_schema(service: DatabaseService) -> None
 
     page = service.fetch_invoices(search="a", limit=2)
     assert page["count"] == len(page["invoices"])
+
+
+
+@pytest.fixture(scope="module")
+def write_service(service: DatabaseService) -> Iterator[DatabaseService]:
+    """A second service on the same database with ``api.allow_writes`` on."""
+    settings = dataclasses.replace(
+        service.settings,
+        api=dataclasses.replace(service.settings.api, allow_writes=True),
+    )
+    instance = DatabaseService(settings)
+    try:
+        yield instance
+    finally:
+        instance.close()
+
+
+def delete_client(service: DatabaseService, surrogate_key: int) -> None:
+    """Remove a test client again (the adapter itself has no delete route)."""
+    with service.pool.write_session() as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                'DELETE FROM "KLIENT" WHERE "ID_KLIENT_TABLE" = ?', [surrogate_key]
+            )
+        finally:
+            cursor.close()
+
+
+def test_create_client_is_refused_without_allow_writes(
+    service: DatabaseService,
+) -> None:
+    with pytest.raises(WritesDisabled):
+        service.create_client(name="KS ADAPTER TEST")
+
+
+@requires_writable
+def test_create_client_stores_the_name_only(write_service: DatabaseService) -> None:
+    name = f"KS ADAPTER TEST {os.getpid()}"
+    created = write_service.create_client(name=name)
+    try:
+        assert created["name"] == name
+        assert created["id"]
+        assert created["client_id"]
+        page = write_service.fetch_clients(search=name, limit=5)
+        assert [client["id"] for client in page["clients"]] == [created["id"]]
+    finally:
+        delete_client(write_service, created["id"])
+
+
+@requires_writable
+def test_create_client_endpoint_over_http(write_service: DatabaseService) -> None:
+    name = f"KS ADAPTER HTTP {os.getpid()}"
+    app = create_app(write_service.settings, service=write_service)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/clients", json={"name": name})
+    body = response.json()
+    try:
+        assert response.status_code == 201
+        assert body["name"] == name
+        assert body["id"]
+    finally:
+        if response.status_code == 201:
+            delete_client(write_service, body["id"])
 

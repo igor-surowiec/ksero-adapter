@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from ks_adapter.app import create_app
+from ks_adapter.errors import WritesDisabled
 
 from .conftest import FakeService, make_settings
 
@@ -141,6 +142,7 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     paths = response.json()["paths"]
     assert "/api/v1/tables/{table}/rows" in paths
     assert "/api/v1/clients" in paths
+    assert "post" in paths["/api/v1/clients"]
     assert "/api/v1/agreements" in paths
     assert "/api/v1/machines" in paths
     assert "/api/v1/orders" in paths
@@ -494,4 +496,60 @@ def test_invoices_accepts_decimal_strings(
     assert invoice["gross"] == "1230.0000"
     assert invoice["amount_due"] == 0.0
     assert invoice["number"] is None
+
+
+
+def test_create_client_returns_the_stored_row(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    response = client.post("/api/v1/clients", json={"name": "ACME Sp. z o.o."})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "ACME Sp. z o.o."
+    assert body["id"] == 1001
+    assert body["client_id"] == 42
+    assert body["nip"] is None
+    assert fake_service.calls[-1] == {
+        "action": "create_client",
+        "name": "ACME Sp. z o.o.",
+    }
+
+
+def test_create_client_requires_a_name(client: TestClient) -> None:
+    assert client.post("/api/v1/clients", json={}).status_code == 422
+    assert client.post("/api/v1/clients", json={"name": ""}).status_code == 422
+    assert client.post("/api/v1/clients", json={"name": "x" * 501}).status_code == 422
+    assert client.post("/api/v1/clients").status_code == 422
+
+
+def test_create_client_requires_api_key() -> None:
+    settings = make_settings(api_key="secret")
+    app = create_app(settings, service=FakeService())
+    with TestClient(app) as client:
+        assert client.post("/api/v1/clients", json={"name": "ACME"}).status_code == 401
+        allowed = client.post(
+            "/api/v1/clients",
+            json={"name": "ACME"},
+            headers={"X-API-Key": "secret"},
+        )
+        assert allowed.status_code == 201
+
+
+def test_create_client_reports_disabled_writes_as_403() -> None:
+    """``api.allow_writes: false`` must answer 403, not 500."""
+
+    class ReadOnlyService(FakeService):
+        def create_client(self, *, name: str) -> dict[str, object]:
+            raise WritesDisabled("Writes are disabled")
+
+    app = create_app(make_settings(), service=ReadOnlyService())
+    with TestClient(app) as client:
+        response = client.post("/api/v1/clients", json={"name": "ACME"})
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": "Writes are disabled",
+        "error": "WritesDisabled",
+    }
 

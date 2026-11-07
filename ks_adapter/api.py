@@ -1,16 +1,18 @@
-"""FastAPI routes exposing the read-only Firebird data."""
+"""FastAPI routes exposing the Firebird data."""
 
 from __future__ import annotations
 
 import hmac
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 
 from .config import AppSettings
 from .errors import AuthenticationError
 from .schemas import (
     AgreementPage,
+    Client,
+    ClientCreate,
     ClientPage,
     HealthResponse,
     InvoicePage,
@@ -188,6 +190,29 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.fetch_clients(limit=limit, offset=offset, search=search)
+
+    @router.post(
+        "/clients",
+        response_model=Client,
+        status_code=status.HTTP_201_CREATED,
+        tags=["data"],
+        summary="Create a contractor (client)",
+        description=(
+            "Inserts one row into the KLIENT table and returns the stored row "
+            "in the same shape as GET /clients. 'name' (NAZWA) is the only "
+            "required value: the INS_KLIENT_RECORD trigger fills ID_KLIENT_TABLE, "
+            "ID_KLIENT and ID_FIRMA from its generators/constants and ID_ODDZIAL "
+            "falls back to its column default, so every other column stays null. "
+            "Requires 'api.allow_writes' (otherwise 403) and, when configured, "
+            "the X-API-Key header."
+        ),
+        dependencies=protected,
+    )
+    def create_client(
+        payload: ClientCreate,
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.create_client(name=payload.name)
 
     @router.get(
         "/agreements",

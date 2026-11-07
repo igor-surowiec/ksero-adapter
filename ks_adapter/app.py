@@ -20,14 +20,17 @@ from .service import DatabaseService
 logger = logging.getLogger(__name__)
 
 DESCRIPTION = """
-Read-only HTTP access to a Firebird database.
+HTTP access to a Firebird database.
 
 * **Schema** - list tables/views, inspect their columns.
 * **Rows** - paginated access with ordering and JSON based filters.
 * **Query** - run your own single read-only `SELECT`/`WITH` statement.
+* **Clients** - create a contractor (opt-in via `api.allow_writes`).
 
-All SQL sent to Firebird is validated and identifiers are quoted, so the API can
-never modify the database.
+Identifiers are quoted and values are always bound parameters. Read requests can
+never modify the database; the only writing statement is the curated `INSERT`
+behind `POST /clients`, which is rejected with `403` unless `api.allow_writes`
+is enabled.
 """
 
 
