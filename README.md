@@ -56,20 +56,24 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
+| `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 | `POST` | `/schema/refresh` | drop and reload the schema cache |
 | `POST` | `/query` | one read-only `SELECT`/`WITH` with parameters |
 
 List endpoints take `limit` (default `api.default_limit`, max `api.max_limit`)
 and `offset`. The curated ones (`/clients`, `/agreements`, `/machines`,
-`/orders`) also take `search`, a case-sensitive substring with escaped
-wildcards, and return a hand-picked column subset that stays inside Firebird's
-64 KB statement-message limit - the reason `ZLECENIE` is never `SELECT *`ed.
+`/orders`, `/invoices`) also take `search`, a case-sensitive substring with
+escaped wildcards, and return a hand-picked column subset that stays inside
+Firebird's 64 KB statement-message limit - the reason `ZLECENIE` is never
+`SELECT *`ed. `/invoices` returns invoice headers only; the positions live in
+`FPOZYCJA` and are not exposed.
 Every response field is documented in the OpenAPI schema (`/docs` or
 `/openapi.json`).
 
 ```bash
 curl 'http://127.0.0.1:8000/api/v1/tables/KLIENCI/rows?limit=25&order_by=NAZWA%20ASC&filters={"TYP":1}'
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
+curl 'http://127.0.0.1:8000/api/v1/invoices?limit=20&search=2026'
 curl -X POST http://127.0.0.1:8000/api/v1/query -H 'Content-Type: application/json' -d '{"sql": "SELECT ID, NAZWA FROM KLIENCI WHERE ID > ? ORDER BY ID", "limit": 10, "parameters": [100]}'
 ```
 

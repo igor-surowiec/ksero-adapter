@@ -86,6 +86,20 @@ ZLECENIE = TableInfo(
     ),
 )
 
+FAKTURA = TableInfo(
+    name="FAKTURA",
+    kind="table",
+    description=None,
+    columns=(
+        ColumnInfo("ID_FAKTURA_TABLE", 0, "INTEGER", False),
+        ColumnInfo("NUMER", 1, "VARCHAR(30)", True),
+        ColumnInfo("NAZWA", 2, "VARCHAR(500)", True),
+        ColumnInfo("DATA_WYST", 3, "DATE", True),
+        ColumnInfo("STAN", 4, "VARCHAR(5)", True),
+        ColumnInfo("SUMA_BRUTTO", 5, "DECIMAL(10,4)", True),
+    ),
+)
+
 
 def make_settings(**api_kwargs: Any) -> AppSettings:
     return AppSettings(
@@ -979,3 +993,111 @@ def test_order_search_list_stays_within_the_firebird_message_limit() -> None:
 
     assert len(ORDER_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
     assert len(set(ORDER_SEARCH_COLUMNS)) == len(ORDER_SEARCH_COLUMNS)
+
+
+def test_fetch_invoices_builds_queries_and_maps_fields() -> None:
+    import datetime as dt
+    from decimal import Decimal
+
+    pool = _Pool(
+        [
+            (None, [(1,)]),
+            (
+                [
+                    ("ID_FAKTURA_TABLE",),
+                    ("NAZWA",),
+                    ("NUMER",),
+                    ("DATA_WYST",),
+                    ("SUMA_BRUTTO",),
+                    ("STAN",),
+                ],
+                [
+                    (
+                        5,
+                        "ACME",
+                        "FV/2026/11/001",
+                        dt.date(2026, 11, 7),
+                        Decimal("1230.0000"),
+                        "W",
+                    )
+                ],
+            ),
+        ]
+    )
+    service = make_projection_service(pool, FAKTURA)
+
+    page = service.fetch_invoices()
+
+    assert page["total"] == 1
+    assert page["count"] == 1
+    assert page["limit"] == 50
+    assert page["offset"] == 0
+    assert page["invoices"] == [
+        {
+            "id": 5,
+            "number": "FV/2026/11/001",
+            "client_name": "ACME",
+            "issue_date": "2026-11-07",
+            "status": "W",
+            "gross": 1230.0,
+        }
+    ]
+
+    assert pool.executed[0] == ('SELECT COUNT(*) FROM "FAKTURA"', None)
+    assert pool.executed[1] == (
+        'SELECT "ID_FAKTURA_TABLE", "NAZWA", "NUMER", "DATA_WYST", '
+        '"SUMA_BRUTTO", "STAN" FROM "FAKTURA" '
+        'ORDER BY "DATA_WYST", "ID_FAKTURA_TABLE" ROWS 1 TO 50',
+        None,
+    )
+
+
+def test_fetch_invoices_search_builds_or_clause() -> None:
+    pool = _Pool([(None, [(0,)]), ([("ID_FAKTURA_TABLE",)], [])])
+    service = make_projection_service(pool, FAKTURA)
+
+    page = service.fetch_invoices(search="fv/2026", limit=5)
+
+    count_sql, params = pool.executed[0]
+    assert page["total"] == 0
+    assert count_sql == (
+        'SELECT COUNT(*) FROM "FAKTURA" '
+        'WHERE ("NUMER" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "NAZWA" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "STAN" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\')'
+    )
+    assert params == ["%fv/2026%"] * 3
+    assert pool.executed[1][1] == params
+
+
+def test_fetch_invoices_validates_arguments() -> None:
+    service = make_projection_service(
+        _Pool([]), FAKTURA, default_limit=10, max_limit=100
+    )
+
+    with pytest.raises(InvalidRequest):
+        service.fetch_invoices(limit=0)
+    with pytest.raises(InvalidRequest):
+        service.fetch_invoices(limit=101)
+    with pytest.raises(InvalidRequest):
+        service.fetch_invoices(offset=-1)
+    with pytest.raises(TableNotFound):
+        make_projection_service(_Pool([]), APPUSER).fetch_invoices()
+
+
+def test_fetch_invoices_requires_known_columns() -> None:
+    table = TableInfo(
+        "FAKTURA", "table", None, (ColumnInfo("OTHER", 0, "INTEGER", True),)
+    )
+    service = make_projection_service(_Pool([]), table)
+
+    with pytest.raises(InvalidRequest):
+        service.fetch_invoices()
+
+
+def test_invoice_search_list_stays_within_the_firebird_message_limit() -> None:
+    from ks_adapter.service import INVOICE_SEARCH_COLUMNS
+    from ks_adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
+
+    assert len(INVOICE_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
+    assert len(set(INVOICE_SEARCH_COLUMNS)) == len(INVOICE_SEARCH_COLUMNS)

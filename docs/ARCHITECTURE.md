@@ -75,8 +75,8 @@ response ◄──────────────────────�
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
-  (`/tables/...`, `/clients`, `/agreements`, `/machines`, `/orders`); `/health` and
-  `/query` skip it.
+  (`/tables/...`, `/clients`, `/agreements`, `/machines`, `/orders`, `/invoices`);
+  `/health` and `/query` skip it.
 
 ### 1.3 Example traces
 
@@ -98,6 +98,11 @@ Variations:
   statement message wider than 64 KB with `-204 Implementation limit exceeded`, which
   `SELECT *` on a very wide table or a `LIKE` over every text column would eventually
   hit — see `sql.MAX_SEARCH_COLUMNS`).
+- `/invoices` is the same call with `INVOICE_FIELDS`/`INVOICE_SEARCH_COLUMNS` over
+  `FAKTURA`. That table is the invoice **header**: the positions live in `FPOZYCJA`
+  and are not exposed, and the per-VAT-rate matrix, the pre-correction block, the
+  `F_*` marker flags and the synchronisation bookkeeping columns are left out of the
+  projection. Ordering is `DATA_WYST, ID_FAKTURA_TABLE` so pages stay stable.
 - `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
   operator or column → `400`) and `_order_clause()` for `order_by`.
 - `POST /query` runs `sql.ensure_read_only()` (single `SELECT`/`WITH`; write/DDL/session
@@ -149,10 +154,10 @@ unauthenticated `GET /` liveness route.
 `hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `GET /agreements`,
-`GET /machines`, `GET /orders`, `POST /query` (relative to `api.prefix`); everything
-except the first two is protected by the shared `protected` dependency list. Parameter
-bounds are generated from the settings; handlers return plain dicts and the declared
-`response_model` does validation + OpenAPI.
+`GET /machines`, `GET /orders`, `GET /invoices`, `POST /query` (relative to
+`api.prefix`); everything except the first two is protected by the shared `protected`
+dependency list. Parameter bounds are generated from the settings; handlers return
+plain dicts and the declared `response_model` does validation + OpenAPI.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
@@ -204,24 +209,27 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 **`service.py`** — `DatabaseService`, the only class the API layer talks to; it owns the
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
-`fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `run_query()`, plus the helpers
-`check_limit()`, `_order_clause()`, `_projection_page()`, `_default_order_clause()` and
-`_check_parameters()`. Module constants define the curated read models:
+`fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
+`run_query()`, plus the helpers `check_limit()`, `_order_clause()`,
+`_projection_page()`, `_default_order_clause()` and `_check_parameters()`. Module
+constants define the curated read models:
 `CLIENTS_TABLE`/`CLIENT_FIELDS` + `CLIENT_SEARCH_COLUMNS`,
 `AGREEMENTS_TABLE`/`AGREEMENT_FIELDS` + `AGREEMENT_SEARCH_COLUMNS`,
 `MACHINES_TABLE`/`MACHINE_FIELDS` + `MACHINE_SEARCH_COLUMNS`,
-`ORDERS_TABLE`/`ORDER_FIELDS` + `ORDER_SEARCH_COLUMNS`. Each is a small hand-picked
+`ORDERS_TABLE`/`ORDER_FIELDS` + `ORDER_SEARCH_COLUMNS`,
+`INVOICES_TABLE`/`INVOICE_FIELDS` + `INVOICE_SEARCH_COLUMNS`. Each is a small hand-picked
 subset of the table's columns, which keeps the endpoint stable even though the underlying
 tables are very wide. `_projection_page()` is the shared implementation of `/clients`,
-`/agreements`, `/machines` and `/orders`: `COUNT(*)` plus the page query on one
-connection, columns missing from the connected database silently skipped.
+`/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page query on
+one connection, columns missing from the connected database silently skipped.
 
 **`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
 `HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `Order`/`OrderPage`,
-`QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection fields are all optional, so a
-missing column never breaks validation, and money columns use `DecimalValue = float | str`.
+`Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection
+fields are all optional, so a missing column never breaks validation, and money columns
+use `DecimalValue = float | str`.
 
 ### Repository files
 

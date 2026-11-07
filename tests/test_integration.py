@@ -232,3 +232,46 @@ def test_orders_search_spans_many_columns_without_hitting_the_limit(
     page = service.fetch_orders(search="a", limit=2)
     assert page["count"] == len(page["orders"])
 
+
+def test_invoices_endpoint_lists_invoices(service: DatabaseService) -> None:
+    page = service.fetch_invoices(limit=5)
+    assert page["limit"] == 5
+    assert page["offset"] == 0
+    assert page["count"] == len(page["invoices"])
+    assert page["total"] >= page["count"]
+    assert all(
+        {"id", "number", "gross", "amount_due"} <= set(invoice)
+        for invoice in page["invoices"]
+    )
+
+
+def test_invoices_endpoint_over_http(service: DatabaseService) -> None:
+    app = create_app(service.settings, service=service)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/invoices", params={"limit": 3})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["limit"] == 3
+        assert isinstance(body["invoices"], list)
+        assert body["count"] == len(body["invoices"])
+        empty = client.get("/api/v1/invoices", params={"search": "zzz-nobody-zzz"})
+        assert empty.status_code == 200
+        assert empty.json()["invoices"] == []
+
+
+def test_invoice_columns_match_the_live_schema(service: DatabaseService) -> None:
+    """Every curated column must exist and still prepare in one statement."""
+    from ks_adapter.service import (
+        INVOICE_FIELDS,
+        INVOICES_TABLE,
+        INVOICE_SEARCH_COLUMNS,
+    )
+
+    columns = service.describe_table(INVOICES_TABLE)["columns"]
+    names = {column["name"].upper() for column in columns}
+    assert set(INVOICE_SEARCH_COLUMNS) <= names
+    assert {column for column, _alias in INVOICE_FIELDS} <= names
+
+    page = service.fetch_invoices(search="a", limit=2)
+    assert page["count"] == len(page["invoices"])
+

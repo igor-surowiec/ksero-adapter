@@ -13,6 +13,7 @@ from .schemas import (
     AgreementPage,
     ClientPage,
     HealthResponse,
+    InvoicePage,
     MachinePage,
     OrderPage,
     QueryRequest,
@@ -298,6 +299,45 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.fetch_orders(limit=limit, offset=offset, search=search)
+
+    @router.get(
+        "/invoices",
+        response_model=InvoicePage,
+        tags=["data"],
+        summary="List invoices (sales documents)",
+        description=(
+            "Returns a page of invoice headers from the FAKTURA table with the "
+            "most useful fields (ids and document links, the contractor "
+            "snapshot, document type/number and corrections, issue, sale, due "
+            "and paid dates, payment terms, issuer, PLN totals with paid and "
+            "outstanding amounts, the foreign-currency totals and correction "
+            "amounts). The positions live in FPOZYCJA and are not included. "
+            "'search' matches the document and correction numbers, type, "
+            "currency, contractor name/NIP/address/city, payment method, "
+            "issuer, place of issue, notes, linked order/contract numbers and "
+            "status (case sensitive substring)."
+        ),
+        dependencies=protected,
+    )
+    def list_invoices(
+        limit: int | None = Query(
+            default=None,
+            ge=1,
+            le=api.max_limit,
+            description=(
+                f"Invoices per page (default {api.default_limit}, "
+                f"max {api.max_limit})"
+            ),
+        ),
+        offset: int = Query(default=0, ge=0, description="Number of invoices to skip"),
+        search: str | None = Query(
+            default=None,
+            max_length=100,
+            description="Substring matched against number, contractor, notes, ...",
+        ),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.fetch_invoices(limit=limit, offset=offset, search=search)
 
     @router.post(
         "/query",

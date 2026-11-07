@@ -262,6 +262,103 @@ ORDER_SEARCH_COLUMNS: tuple[str, ...] = (
     "PLIK",
 )
 
+#: Table holding invoices (sales documents) in the BAZAMS schema.
+INVOICES_TABLE = "FAKTURA"
+
+#: Columns exposed by ``GET /invoices`` mapped to their JSON field names.
+#:
+#: The invoice header of ``FAKTURA`` is wide and mostly bookkeeping, so the
+#: projection keeps document identity, links, the contractor snapshot, dates,
+#: the PLN and foreign-currency totals and the correction amounts; the
+#: per-VAT-rate matrix (``NETTO1``-``NETTO8``, ``VAT1``-``VAT5``,
+#: ``BRUTTO1``-``BRUTTO8``), the pre-correction block (``PRKOR_*``, ``ZALICZKA_*``
+#: variants), the ``F_*`` marker flags and the ``ALIENSYNCH*``/``WERSJA``/
+#: ``EDITCNT``/``TEMP`` bookkeeping columns stay out of the payload.  The
+#: invoice lines live in the separate ``FPOZYCJA`` table and are not exposed.
+INVOICE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("ID_FAKTURA_TABLE", "id"),
+    ("ID_ODDZIAL", "branch_id"),
+    ("ID_FIRMA", "company_id"),
+    ("ID_MAGAZYN", "warehouse_id"),
+    ("ID_KLIENT", "client_id"),
+    ("ID_ODBIORCA", "recipient_id"),
+    ("ID_MASZYNA", "machine_id"),
+    ("ID_ZLECENIE", "service_order_id"),
+    ("ROK_ZLECENIA", "service_order_year"),
+    ("ID_KOSZTORYS", "estimate_id"),
+    ("ID_WZ", "wz_id"),
+    ("ID_UMOWA", "contract_id"),
+    ("ID_UMOWACPC", "agreement_id"),
+    ("ID_ZAMOWIENIE", "purchase_order_id"),
+    ("ID_PACZKA", "parcel_id"),
+    ("ID_ACCOUNT", "account_id"),
+    ("ID_CURR", "currency_id"),
+    ("NAZWA", "client_name"),
+    ("ADRES", "address"),
+    ("KOD", "postcode"),
+    ("POCZTA", "city"),
+    ("NIP", "nip"),
+    ("KOD_KRAJU", "country_code"),
+    ("RODZAJ_DOK", "document_type"),
+    ("NUMER", "number"),
+    ("NR_KORY", "corrected_number"),
+    ("KOREKTA", "correction_number"),
+    ("NR_PAR", "receipt_number"),
+    ("CCODE", "currency_code"),
+    ("MIEJSCE_WYST", "issue_place"),
+    ("WYSTAWIL", "issued_by"),
+    ("ODEBRAL", "received_by"),
+    ("DATA_SPRZ", "sale_date"),
+    ("DATA_WYST", "issue_date"),
+    ("DATA_PLAT", "due_date"),
+    ("DATA_ZAPL", "paid_date"),
+    ("DATA_KORY", "correction_date"),
+    ("DATA_ZAM", "purchase_order_date"),
+    ("DNI_PLAT", "payment_days"),
+    ("PLATNOSC", "payment_method"),
+    ("WAL_KURS", "exchange_rate"),
+    ("SUMA_NETTO", "net"),
+    ("SUMA_VAT", "vat"),
+    ("SUMA_BRUTTO", "gross"),
+    ("ZAPLACONO", "paid"),
+    ("ZALICZKA", "prepayment"),
+    ("DO_ZAPLATY", "amount_due"),
+    ("POKOR_NETTO", "corrected_net"),
+    ("POKOR_VAT", "corrected_vat"),
+    ("POKOR_BRUTTO", "corrected_gross"),
+    ("WAL_NETTO", "net_currency"),
+    ("WAL_VAT", "vat_currency"),
+    ("WAL_BRUTTO", "gross_currency"),
+    ("WAL_ZAPLACONO", "paid_currency"),
+    ("WAL_DO_ZAPLATY", "amount_due_currency"),
+    ("STAN", "status"),
+    ("UWAGI", "notes"),
+    ("ZAMOWIENIE", "purchase_order_number"),
+    ("DOUMOWY", "contract_number"),
+)
+
+#: Columns matched by the ``search`` parameter of ``GET /invoices``.
+INVOICE_SEARCH_COLUMNS: tuple[str, ...] = (
+    "NUMER",
+    "NR_KORY",
+    "KOREKTA",
+    "NR_PAR",
+    "RODZAJ_DOK",
+    "CCODE",
+    "NAZWA",
+    "NIP",
+    "ADRES",
+    "KOD",
+    "POCZTA",
+    "PLATNOSC",
+    "WYSTAWIL",
+    "MIEJSCE_WYST",
+    "UWAGI",
+    "ZAMOWIENIE",
+    "DOUMOWY",
+    "STAN",
+)
+
 
 class DatabaseService:
     """Read-only facade over a Firebird database."""
@@ -473,6 +570,37 @@ class DatabaseService:
         page["orders"] = page.pop("rows")
         return page
 
+    def fetch_invoices(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a page of invoices (sales documents) from ``FAKTURA``.
+
+        ``FAKTURA`` is the invoice header, not the document: the positions live
+        in ``FPOZYCJA`` and are not exposed.  :data:`INVOICE_FIELDS` therefore
+        keeps document identity, links, the contractor snapshot, dates and the
+        PLN/foreign-currency totals, while the per-VAT-rate matrix and the
+        bookkeeping columns are skipped.
+
+        Ordering is by issue date and surrogate key, so paging stays stable
+        when several invoices share a date.
+        """
+        page = self._projection_page(
+            INVOICES_TABLE,
+            INVOICE_FIELDS,
+            INVOICE_SEARCH_COLUMNS,
+            limit=limit,
+            offset=offset,
+            search=search,
+            order_columns=("DATA_WYST", "ID_FAKTURA_TABLE"),
+            label="invoice",
+        )
+        page["invoices"] = page.pop("rows")
+        return page
+
     def _projection_page(
         self,
         table: str,
@@ -488,8 +616,8 @@ class DatabaseService:
         """Page through a stable projection of ``table``.
 
         Shared implementation of ``/clients``, ``/agreements``,
-        ``/machines`` and ``/orders``: selects only the ``fields`` that exist in
-        the database,
+        ``/machines``, ``/orders`` and ``/invoices``: selects only the
+        ``fields`` that exist in the database,
         applies the optional ``search`` substring, orders by ``order_columns``
         (first available wins) and returns ``total``/``count``/``limit``/
         ``offset`` plus ``rows`` keyed by the JSON aliases.

@@ -370,6 +370,159 @@ class OrderPage(BaseModel):
     orders: list[Order]
 
 
+class Invoice(BaseModel):
+    """An invoice (sales document header) stored in the ``FAKTURA`` table."""
+
+    id: int | None = Field(
+        default=None, description="Surrogate key (FAKTURA.ID_FAKTURA_TABLE)"
+    )
+    branch_id: int | None = Field(default=None, description="Branch (ID_ODDZIAL)")
+    company_id: int | None = Field(default=None, description="Company (ID_FIRMA)")
+    warehouse_id: int | None = Field(default=None, description="Warehouse (ID_MAGAZYN)")
+    client_id: int | None = Field(default=None, description="Contractor (ID_KLIENT)")
+    recipient_id: int | None = Field(
+        default=None, description="Goods recipient (ID_ODBIORCA)"
+    )
+    machine_id: int | None = Field(default=None, description="Device (ID_MASZYNA)")
+    service_order_id: int | None = Field(
+        default=None, description="Linked service order (ID_ZLECENIE)"
+    )
+    service_order_year: int | None = Field(
+        default=None, description="Year of the linked service order (ROK_ZLECENIA)"
+    )
+    estimate_id: int | None = Field(
+        default=None, description="Linked estimate (ID_KOSZTORYS)"
+    )
+    wz_id: int | None = Field(
+        default=None, description="Linked goods issue document (ID_WZ)"
+    )
+    contract_id: int | None = Field(
+        default=None, description="Linked contract (ID_UMOWA)"
+    )
+    agreement_id: int | None = Field(
+        default=None, description="Linked service agreement (ID_UMOWACPC)"
+    )
+    purchase_order_id: int | None = Field(
+        default=None, description="Linked purchase order (ID_ZAMOWIENIE)"
+    )
+    parcel_id: int | None = Field(default=None, description="Linked parcel (ID_PACZKA)")
+    account_id: int | None = Field(
+        default=None, description="Bank account used for payment (ID_ACCOUNT)"
+    )
+    currency_id: int | None = Field(
+        default=None, description="Currency dictionary entry (ID_CURR)"
+    )
+    client_name: str | None = Field(
+        default=None, description="Contractor name copied onto the document (NAZWA)"
+    )
+    address: str | None = Field(default=None, description="ADRES")
+    postcode: str | None = Field(default=None, description="KOD")
+    city: str | None = Field(default=None, description="POCZTA")
+    nip: str | None = Field(default=None, description="Tax identifier (NIP)")
+    country_code: str | None = Field(default=None, description="KOD_KRAJU")
+    document_type: str | None = Field(
+        default=None,
+        description="Document kind, e.g. invoice or correction (RODZAJ_DOK)",
+    )
+    number: str | None = Field(default=None, description="Document number (NUMER)")
+    corrected_number: str | None = Field(
+        default=None, description="Number of the corrected document (NR_KORY)"
+    )
+    correction_number: str | None = Field(
+        default=None, description="Correction document number (KOREKTA)"
+    )
+    receipt_number: str | None = Field(
+        default=None, description="Linked receipt number (NR_PAR)"
+    )
+    currency_code: str | None = Field(
+        default=None, description="Currency code, e.g. PLN/EUR (CCODE)"
+    )
+    issue_place: str | None = Field(
+        default=None, description="Place of issue (MIEJSCE_WYST)"
+    )
+    issued_by: str | None = Field(default=None, description="Issued by (WYSTAWIL)")
+    received_by: str | None = Field(default=None, description="Received by (ODEBRAL)")
+    sale_date: str | None = Field(
+        default=None, description="ISO date of sale (DATA_SPRZ)"
+    )
+    issue_date: str | None = Field(
+        default=None, description="ISO issue date (DATA_WYST)"
+    )
+    due_date: str | None = Field(default=None, description="ISO due date (DATA_PLAT)")
+    paid_date: str | None = Field(default=None, description="ISO paid date (DATA_ZAPL)")
+    correction_date: str | None = Field(
+        default=None, description="ISO correction date (DATA_KORY)"
+    )
+    purchase_order_date: str | None = Field(
+        default=None, description="ISO date of the linked order (DATA_ZAM)"
+    )
+    payment_days: int | None = Field(
+        default=None, description="Payment term in days (DNI_PLAT)"
+    )
+    payment_method: str | None = Field(
+        default=None, description="Payment method (PLATNOSC)"
+    )
+    exchange_rate: DecimalValue | None = Field(
+        default=None, description="Foreign-currency rate (WAL_KURS)"
+    )
+    net: DecimalValue | None = Field(default=None, description="Net total (SUMA_NETTO)")
+    vat: DecimalValue | None = Field(default=None, description="VAT total (SUMA_VAT)")
+    gross: DecimalValue | None = Field(
+        default=None, description="Gross total (SUMA_BRUTTO)"
+    )
+    paid: DecimalValue | None = Field(
+        default=None, description="Amount paid (ZAPLACONO)"
+    )
+    prepayment: DecimalValue | None = Field(
+        default=None, description="Prepayment deducted (ZALICZKA)"
+    )
+    amount_due: DecimalValue | None = Field(
+        default=None, description="Outstanding amount (DO_ZAPLATY)"
+    )
+    corrected_net: DecimalValue | None = Field(
+        default=None, description="Net total after the correction (POKOR_NETTO)"
+    )
+    corrected_vat: DecimalValue | None = Field(
+        default=None, description="VAT total after the correction (POKOR_VAT)"
+    )
+    corrected_gross: DecimalValue | None = Field(
+        default=None, description="Gross total after the correction (POKOR_BRUTTO)"
+    )
+    net_currency: DecimalValue | None = Field(
+        default=None, description="Net total in the foreign currency (WAL_NETTO)"
+    )
+    vat_currency: DecimalValue | None = Field(
+        default=None, description="VAT total in the foreign currency (WAL_VAT)"
+    )
+    gross_currency: DecimalValue | None = Field(
+        default=None, description="Gross total in the foreign currency (WAL_BRUTTO)"
+    )
+    paid_currency: DecimalValue | None = Field(
+        default=None, description="Amount paid in the foreign currency (WAL_ZAPLACONO)"
+    )
+    amount_due_currency: DecimalValue | None = Field(
+        default=None, description="Outstanding amount in the currency (WAL_DO_ZAPLATY)"
+    )
+    status: str | None = Field(default=None, description="Raw status code (STAN)")
+    notes: str | None = Field(default=None, description="Notes (UWAGI)")
+    purchase_order_number: str | None = Field(
+        default=None, description="Linked order number (ZAMOWIENIE)"
+    )
+    contract_number: str | None = Field(
+        default=None, description="Linked contract number (DOUMOWY)"
+    )
+
+
+class InvoicePage(BaseModel):
+    """A page of invoices returned by ``/invoices``."""
+
+    total: int = Field(description="Total number of invoices matching 'search'")
+    count: int = Field(description="Number of invoices in this page")
+    limit: int
+    offset: int
+    invoices: list[Invoice]
+
+
 class QueryRequest(BaseModel):
     sql: str = Field(
         min_length=1,

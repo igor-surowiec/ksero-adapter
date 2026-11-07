@@ -144,6 +144,7 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     assert "/api/v1/agreements" in paths
     assert "/api/v1/machines" in paths
     assert "/api/v1/orders" in paths
+    assert "/api/v1/invoices" in paths
     assert "/api/v1/query" in paths
 
 
@@ -417,4 +418,80 @@ def test_orders_accepts_decimal_strings(
     assert order["gross"] == "120.5000"
     assert order["labour"] == 10.5
     assert order["client_name"] is None
+
+
+def test_invoices_endpoint(client: TestClient, fake_service: FakeService) -> None:
+    response = client.get(
+        "/api/v1/invoices", params={"limit": 10, "offset": 5, "search": "acme"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 3
+    assert body["count"] == 1
+    assert body["limit"] == 10
+    assert body["offset"] == 5
+    assert body["invoices"][0]["number"] == "FV/2026/11/001"
+    assert body["invoices"][0]["id"] == 6
+    assert fake_service.calls[-1] == {
+        "action": "fetch_invoices",
+        "limit": 10,
+        "offset": 5,
+        "search": "acme",
+    }
+
+
+def test_invoices_endpoint_defaults(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    response = client.get("/api/v1/invoices")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 50
+    assert body["offset"] == 0
+    call = fake_service.calls[-1]
+    assert call["limit"] is None
+    assert call["search"] is None
+
+
+def test_invoices_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/api/v1/invoices", params={"limit": 0}).status_code == 422
+    assert client.get("/api/v1/invoices", params={"limit": 5000}).status_code == 422
+    assert client.get("/api/v1/invoices", params={"offset": -1}).status_code == 422
+    assert (
+        client.get("/api/v1/invoices", params={"search": "x" * 101}).status_code == 422
+    )
+
+
+def test_invoices_requires_api_key() -> None:
+    settings = make_settings(api_key="secret")
+    app = create_app(settings, service=FakeService())
+    with TestClient(app) as client:
+        assert client.get("/api/v1/invoices").status_code == 401
+        allowed = client.get("/api/v1/invoices", headers={"X-API-Key": "secret"})
+        assert allowed.status_code == 200
+
+
+def test_invoices_accepts_decimal_strings(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    """``api.decimal_as_string`` turns DECIMAL columns into strings."""
+
+    def fake_fetch(**_kwargs: object) -> dict[str, object]:
+        return {
+            "total": 1,
+            "count": 1,
+            "limit": 50,
+            "offset": 0,
+            "invoices": [{"id": 1, "gross": "1230.0000", "amount_due": 0.0}],
+        }
+
+    fake_service.fetch_invoices = fake_fetch  # type: ignore[method-assign]
+
+    response = client.get("/api/v1/invoices")
+
+    assert response.status_code == 200
+    invoice = response.json()["invoices"][0]
+    assert invoice["gross"] == "1230.0000"
+    assert invoice["amount_due"] == 0.0
+    assert invoice["number"] is None
 

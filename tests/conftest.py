@@ -224,6 +224,37 @@ class FakeService:
             ],
         }
 
+    def fetch_invoices(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "action": "fetch_invoices",
+                "limit": limit,
+                "offset": offset,
+                "search": search,
+            }
+        )
+        return {
+            "total": 3,
+            "count": 1,
+            "limit": limit or 50,
+            "offset": offset,
+            "invoices": [
+                {
+                    "id": offset + 1,
+                    "number": "FV/2026/11/001",
+                    "client_name": "ACME",
+                    "gross": 1230.0,
+                    "client_id": 7,
+                }
+            ],
+        }
+
     def run_query(
         self, sql: str, *, limit: int | None = None, parameters: Any = None
     ) -> dict[str, Any]:
