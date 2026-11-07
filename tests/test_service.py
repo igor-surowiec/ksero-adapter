@@ -54,6 +54,38 @@ UMOWACPC = TableInfo(
     ),
 )
 
+MASZYNA = TableInfo(
+    name="MASZYNA",
+    kind="table",
+    description=None,
+    columns=(
+        ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+        ColumnInfo("ID_MASZYNA", 1, "INTEGER", False),
+        ColumnInfo("MARKA", 2, "VARCHAR(100)", True),
+        ColumnInfo("SERIAL", 3, "VARCHAR(100)", True),
+        ColumnInfo("INSTALACJA", 4, "DATE", True),
+        ColumnInfo("TECHNIK", 5, "VARCHAR(100)", True),
+        ColumnInfo("KOSZTY", 6, "DECIMAL(10,4)", True),
+    ),
+)
+
+
+ZLECENIE = TableInfo(
+    name="ZLECENIE",
+    kind="table",
+    description=None,
+    columns=(
+        ColumnInfo("ID_ZLECENIE_TABLE", 0, "INTEGER", False),
+        ColumnInfo("ID_ZLECENIE", 1, "INTEGER", False),
+        ColumnInfo("STAN", 2, "VARCHAR(3)", True),
+        ColumnInfo("NAZWA", 3, "VARCHAR(500)", True),
+        ColumnInfo("MARKA", 4, "VARCHAR(100)", True),
+        ColumnInfo("DATA", 5, "DATE", True),
+        ColumnInfo("TECHNIK", 6, "VARCHAR(100)", True),
+        ColumnInfo("BRUTTO", 7, "DECIMAL(10,4)", True),
+    ),
+)
+
 
 def make_settings(**api_kwargs: Any) -> AppSettings:
     return AppSettings(
@@ -619,3 +651,331 @@ def test_fetch_agreements_requires_known_columns() -> None:
 
     with pytest.raises(InvalidRequest):
         service.fetch_agreements()
+
+
+def test_fetch_machines_builds_queries_and_maps_fields() -> None:
+    import datetime as dt
+    from decimal import Decimal
+
+    pool = _Pool(
+        [
+            (None, [(1,)]),
+            (
+                [
+                    ("ID_MASZYNA_TABLE",),
+                    ("ID_MASZYNA",),
+                    ("MARKA",),
+                    ("SERIAL",),
+                    ("INSTALACJA",),
+                    ("TECHNIK",),
+                    ("KOSZTY",),
+                ],
+                [
+                    (
+                        3,
+                        2,
+                        "KONICA",
+                        "SN-0001",
+                        dt.date(2024, 3, 1),
+                        "Nowak Anna",
+                        Decimal("120.0000"),
+                    )
+                ],
+            ),
+        ]
+    )
+    service = make_projection_service(pool, MASZYNA)
+
+    page = service.fetch_machines()
+
+    assert page["total"] == 1
+    assert page["count"] == 1
+    assert page["limit"] == 50
+    assert page["offset"] == 0
+    assert page["machines"] == [
+        {
+            "id": 3,
+            "machine_id": 2,
+            "brand": "KONICA",
+            "serial": "SN-0001",
+            "install_date": "2024-03-01",
+            "technician": "Nowak Anna",
+            "costs": 120.0,
+        }
+    ]
+
+    assert pool.executed[0] == ('SELECT COUNT(*) FROM "MASZYNA"', None)
+    assert pool.executed[1] == (
+        'SELECT "ID_MASZYNA_TABLE", "ID_MASZYNA", "MARKA", "SERIAL", '
+        '"INSTALACJA", "TECHNIK", "KOSZTY" FROM "MASZYNA" '
+        'ORDER BY "ID_MASZYNA", "ID_MASZYNA_TABLE" ROWS 1 TO 50',
+        None,
+    )
+
+
+def test_fetch_machines_uses_configured_default_limit() -> None:
+    pool = _Pool([(None, [(0,)]), ([("ID_MASZYNA_TABLE",)], [])])
+    service = make_projection_service(pool, MASZYNA, default_limit=20, max_limit=100)
+
+    page = service.fetch_machines(offset=40)
+
+    assert page["limit"] == 20
+    assert page["offset"] == 40
+    assert page["machines"] == []
+    assert pool.executed[1][0].endswith("ROWS 41 TO 60")
+
+
+def test_fetch_machines_search_builds_or_clause() -> None:
+    pool = _Pool([(None, [(1,)]), ([("ID_MASZYNA_TABLE",)], [])])
+    service = make_projection_service(pool, MASZYNA)
+
+    page = service.fetch_machines(search="  kon%1  ", limit=5)
+
+    count_sql, params = pool.executed[0]
+    assert page["total"] == 1
+    assert count_sql == (
+        'SELECT COUNT(*) FROM "MASZYNA" '
+        'WHERE ("MARKA" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "SERIAL" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "TECHNIK" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\')'
+    )
+    assert params == ["%kon\\%1%", "%kon\\%1%", "%kon\\%1%"]
+    assert pool.executed[1][1] == params
+
+
+def test_fetch_machines_serialises_decimals_as_strings() -> None:
+    from decimal import Decimal
+
+    table = TableInfo(
+        "MASZYNA",
+        "table",
+        None,
+        (ColumnInfo("OPLATA", 0, "DECIMAL(10,4)", True),),
+    )
+    pool = _Pool([(None, [(1,)]), ([("OPLATA",)], [(Decimal("0.1200"),)])])
+    service = make_projection_service(pool, table, decimal_as_string=True)
+
+    page = service.fetch_machines(limit=1)
+
+    assert page["machines"] == [{"fee": "0.1200"}]
+
+
+def test_fetch_machines_skips_columns_missing_from_schema() -> None:
+    table = TableInfo(
+        "MASZYNA",
+        "table",
+        None,
+        (
+            ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+            ColumnInfo("MARKA", 1, "VARCHAR(100)", True),
+        ),
+    )
+    pool = _Pool(
+        [
+            (None, [(1,)]),
+            ([("ID_MASZYNA_TABLE",), ("MARKA",)], [(3, "KONICA")]),
+        ]
+    )
+    service = make_projection_service(pool, table)
+
+    page = service.fetch_machines(limit=1)
+
+    assert page["machines"] == [{"id": 3, "brand": "KONICA"}]
+    assert pool.executed[1][0] == (
+        'SELECT "ID_MASZYNA_TABLE", "MARKA" FROM "MASZYNA" '
+        'ORDER BY "ID_MASZYNA_TABLE" ROWS 1 TO 1'
+    )
+
+
+def test_fetch_machines_validates_arguments() -> None:
+    service = make_projection_service(
+        _Pool([]), MASZYNA, default_limit=10, max_limit=100
+    )
+    with pytest.raises(InvalidRequest):
+        service.fetch_machines(limit=0)
+    with pytest.raises(InvalidRequest):
+        service.fetch_machines(limit=101)
+    with pytest.raises(InvalidRequest):
+        service.fetch_machines(offset=-1)
+    with pytest.raises(TableNotFound):
+        make_projection_service(_Pool([]), APPUSER).fetch_machines()
+
+
+def test_fetch_machines_requires_known_columns() -> None:
+    table = TableInfo(
+        "MASZYNA", "table", None, (ColumnInfo("OTHER", 0, "INTEGER", True),)
+    )
+    service = make_projection_service(_Pool([]), table)
+
+    with pytest.raises(InvalidRequest):
+        service.fetch_machines()
+
+
+def test_fetch_orders_builds_queries_and_maps_fields() -> None:
+    import datetime as dt
+    from decimal import Decimal
+
+    pool = _Pool(
+        [
+            (None, [(1,)]),
+            (
+                [
+                    ("ID_ZLECENIE_TABLE",),
+                    ("ID_ZLECENIE",),
+                    ("STAN",),
+                    ("NAZWA",),
+                    ("MARKA",),
+                    ("DATA",),
+                    ("TECHNIK",),
+                    ("BRUTTO",),
+                ],
+                [
+                    (
+                        2,
+                        2,
+                        "O",
+                        "ACME",
+                        "KONICA",
+                        dt.date(2026, 11, 7),
+                        "Nowak Anna",
+                        Decimal("120.5000"),
+                    )
+                ],
+            ),
+        ]
+    )
+    service = make_projection_service(pool, ZLECENIE)
+
+    page = service.fetch_orders()
+
+    assert page["total"] == 1
+    assert page["count"] == 1
+    assert page["limit"] == 50
+    assert page["offset"] == 0
+    assert page["orders"] == [
+        {
+            "id": 2,
+            "order_id": 2,
+            "status": "O",
+            "client_name": "ACME",
+            "brand": "KONICA",
+            "order_date": "2026-11-07",
+            "technician": "Nowak Anna",
+            "gross": 120.5,
+        }
+    ]
+
+    assert pool.executed[0] == ('SELECT COUNT(*) FROM "ZLECENIE"', None)
+    assert pool.executed[1] == (
+        'SELECT "ID_ZLECENIE_TABLE", "ID_ZLECENIE", "STAN", "NAZWA", "MARKA", '
+        '"DATA", "TECHNIK", "BRUTTO" FROM "ZLECENIE" '
+        'ORDER BY "DATA", "ID_ZLECENIE_TABLE" ROWS 1 TO 50',
+        None,
+    )
+
+
+def test_fetch_orders_uses_configured_default_limit() -> None:
+    pool = _Pool([(None, [(0,)]), ([("ID_ZLECENIE_TABLE",)], [])])
+    service = make_projection_service(
+        pool, ZLECENIE, default_limit=20, max_limit=100
+    )
+
+    page = service.fetch_orders(offset=40)
+
+    assert page["limit"] == 20
+    assert page["offset"] == 40
+    assert page["orders"] == []
+    assert pool.executed[1][0].endswith("ROWS 41 TO 60")
+
+
+def test_fetch_orders_search_builds_or_clause() -> None:
+    pool = _Pool([(None, [(1,)]), ([("ID_ZLECENIE_TABLE",)], [])])
+    service = make_projection_service(pool, ZLECENIE)
+
+    page = service.fetch_orders(search="  acme%1  ", limit=5)
+
+    count_sql, params = pool.executed[0]
+    assert page["total"] == 1
+    assert count_sql == (
+        'SELECT COUNT(*) FROM "ZLECENIE" '
+        'WHERE ("NAZWA" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "MARKA" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "TECHNIK" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\' '
+        'OR "STAN" LIKE CAST(? AS VARCHAR(1024)) ESCAPE \'\\\')'
+    )
+    assert params == ["%acme\\%1%"] * 4
+    assert pool.executed[1][1] == params
+
+
+def test_fetch_orders_serialises_decimals_as_strings() -> None:
+    from decimal import Decimal
+
+    table = TableInfo(
+        "ZLECENIE",
+        "table",
+        None,
+        (ColumnInfo("BRUTTO", 0, "DECIMAL(10,4)", True),),
+    )
+    pool = _Pool([(None, [(1,)]), ([("BRUTTO",)], [(Decimal("120.5000"),)])])
+    service = make_projection_service(pool, table, decimal_as_string=True)
+
+    page = service.fetch_orders(limit=1)
+
+    assert page["orders"] == [{"gross": "120.5000"}]
+
+
+def test_fetch_orders_skips_columns_missing_from_schema() -> None:
+    table = TableInfo(
+        "ZLECENIE",
+        "table",
+        None,
+        (
+            ColumnInfo("ID_ZLECENIE_TABLE", 0, "INTEGER", False),
+            ColumnInfo("STAN", 1, "VARCHAR(3)", True),
+        ),
+    )
+    pool = _Pool(
+        [(None, [(1,)]), ([("ID_ZLECENIE_TABLE",), ("STAN",)], [(2, "O")])]
+    )
+    service = make_projection_service(pool, table)
+
+    page = service.fetch_orders(limit=1)
+
+    assert page["orders"] == [{"id": 2, "status": "O"}]
+    assert pool.executed[1][0] == (
+        'SELECT "ID_ZLECENIE_TABLE", "STAN" FROM "ZLECENIE" '
+        'ORDER BY "ID_ZLECENIE_TABLE" ROWS 1 TO 1'
+    )
+
+
+def test_fetch_orders_validates_arguments() -> None:
+    service = make_projection_service(
+        _Pool([]), ZLECENIE, default_limit=10, max_limit=100
+    )
+    with pytest.raises(InvalidRequest):
+        service.fetch_orders(limit=0)
+    with pytest.raises(InvalidRequest):
+        service.fetch_orders(limit=101)
+    with pytest.raises(InvalidRequest):
+        service.fetch_orders(offset=-1)
+    with pytest.raises(TableNotFound):
+        make_projection_service(_Pool([]), APPUSER).fetch_orders()
+
+
+def test_fetch_orders_requires_known_columns() -> None:
+    table = TableInfo(
+        "ZLECENIE", "table", None, (ColumnInfo("OTHER", 0, "INTEGER", True),)
+    )
+    service = make_projection_service(_Pool([]), table)
+
+    with pytest.raises(InvalidRequest):
+        service.fetch_orders()
+
+
+def test_order_search_list_stays_within_the_firebird_message_limit() -> None:
+    """A wider list would fail to prepare with "Implementation limit exceeded"."""
+    from ks_adapter.service import ORDER_SEARCH_COLUMNS
+    from ks_adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
+
+    assert len(ORDER_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
+    assert len(set(ORDER_SEARCH_COLUMNS)) == len(ORDER_SEARCH_COLUMNS)

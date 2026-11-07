@@ -38,6 +38,23 @@ _FORBIDDEN_KEYWORDS = (
 #: Casting the bind parameter keeps it wide enough for any pattern.
 _LIKE_PARAMETER = "CAST(? AS VARCHAR(1024))"
 
+#: Wire size of one ``_LIKE_PARAMETER``: the 1024 bytes of payload plus the
+#: 2-byte length prefix of a ``VARCHAR``.
+LIKE_PARAMETER_BYTES = 1024 + 2
+
+#: Firebird 2.5 refuses to prepare a statement whose parameter or description
+#: message is wider than this and answers with ``-204 Implementation limit
+#: exceeded - block size exceeds implementation restriction``.  It is the reason
+#: the curated endpoints search a hand-picked list of columns instead of every
+#: text column of a wide table: each ``LIKE`` predicate costs a full
+#: ``_LIKE_PARAMETER``, so a single ``WHERE`` can only carry
+#: :data:`MAX_SEARCH_COLUMNS` of them.  Measured against Firebird 2.5: 63
+#: predicates prepare fine (64 638 bytes), 64 fail (65 664 bytes).
+MAX_MESSAGE_BYTES = 65535
+
+#: Maximum number of columns ``build_search`` may combine in one statement.
+MAX_SEARCH_COLUMNS = MAX_MESSAGE_BYTES // LIKE_PARAMETER_BYTES
+
 
 def quote_identifier(name: str) -> str:
     """Quote a Firebird identifier, escaping embedded double quotes."""
@@ -290,6 +307,10 @@ def build_search(
     are skipped so a schema change cannot break the endpoint.  The search term
     is bound as a parameter and LIKE wildcards are escaped, so the term is
     always matched literally.
+
+    Firebird sizes the parameter message from the number of predicates, so a
+    list longer than :data:`MAX_SEARCH_COLUMNS` is refused here instead of
+    failing later with an opaque "Implementation limit exceeded".
     """
     if term is None:
         return "", []
@@ -312,6 +333,11 @@ def build_search(
         params.append(pattern)
     if not fragments:
         return "", []
+    if len(fragments) > MAX_SEARCH_COLUMNS:
+        raise InvalidRequest(
+            f"'search' would span {len(fragments)} columns, but Firebird allows "
+            f"at most {MAX_SEARCH_COLUMNS} LIKE parameters per statement"
+        )
     return " WHERE (" + " OR ".join(fragments) + ")", params
 
 

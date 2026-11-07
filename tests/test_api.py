@@ -142,6 +142,8 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     assert "/api/v1/tables/{table}/rows" in paths
     assert "/api/v1/clients" in paths
     assert "/api/v1/agreements" in paths
+    assert "/api/v1/machines" in paths
+    assert "/api/v1/orders" in paths
     assert "/api/v1/query" in paths
 
 
@@ -267,3 +269,152 @@ def test_agreements_accepts_decimal_strings(
     assert agreement["costs"] == "1500.5000"
     assert agreement["revenue"] == 10.5
     assert agreement["number"] is None
+
+
+def test_machines_endpoint(client: TestClient, fake_service: FakeService) -> None:
+    response = client.get(
+        "/api/v1/machines", params={"limit": 10, "offset": 5, "search": "konica"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 6
+    assert body["count"] == 1
+    assert body["limit"] == 10
+    assert body["offset"] == 5
+    assert body["machines"][0]["brand"] == "KONICA"
+    assert body["machines"][0]["id"] == 6
+    assert fake_service.calls[-1] == {
+        "action": "fetch_machines",
+        "limit": 10,
+        "offset": 5,
+        "search": "konica",
+    }
+
+
+def test_machines_endpoint_defaults(client: TestClient, fake_service: FakeService) -> None:
+    response = client.get("/api/v1/machines")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 50
+    assert body["offset"] == 0
+    call = fake_service.calls[-1]
+    assert call["limit"] is None
+    assert call["search"] is None
+
+
+def test_machines_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/api/v1/machines", params={"limit": 0}).status_code == 422
+    assert client.get("/api/v1/machines", params={"limit": 5000}).status_code == 422
+    assert client.get("/api/v1/machines", params={"offset": -1}).status_code == 422
+    assert (
+        client.get("/api/v1/machines", params={"search": "x" * 101}).status_code == 422
+    )
+
+
+def test_machines_requires_api_key() -> None:
+    settings = make_settings(api_key="secret")
+    app = create_app(settings, service=FakeService())
+    with TestClient(app) as client:
+        assert client.get("/api/v1/machines").status_code == 401
+        allowed = client.get("/api/v1/machines", headers={"X-API-Key": "secret"})
+        assert allowed.status_code == 200
+
+
+def test_machines_accepts_decimal_strings(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    """``api.decimal_as_string`` turns DECIMAL columns into strings."""
+
+    def fake_fetch(**_kwargs: object) -> dict[str, object]:
+        return {
+            "total": 1,
+            "count": 1,
+            "limit": 50,
+            "offset": 0,
+            "machines": [{"id": 1, "fee": "0.1200", "costs": 30.5}],
+        }
+
+    fake_service.fetch_machines = fake_fetch  # type: ignore[method-assign]
+
+    response = client.get("/api/v1/machines")
+
+    assert response.status_code == 200
+    machine = response.json()["machines"][0]
+    assert machine["fee"] == "0.1200"
+    assert machine["costs"] == 30.5
+    assert machine["brand"] is None
+
+
+def test_orders_endpoint(client: TestClient, fake_service: FakeService) -> None:
+    response = client.get(
+        "/api/v1/orders", params={"limit": 10, "offset": 5, "search": "acme"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 9
+    assert body["count"] == 1
+    assert body["limit"] == 10
+    assert body["offset"] == 5
+    assert body["orders"][0]["client_name"] == "ACME"
+    assert body["orders"][0]["id"] == 6
+    assert fake_service.calls[-1] == {
+        "action": "fetch_orders",
+        "limit": 10,
+        "offset": 5,
+        "search": "acme",
+    }
+
+
+def test_orders_endpoint_defaults(client: TestClient, fake_service: FakeService) -> None:
+    response = client.get("/api/v1/orders")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 50
+    assert body["offset"] == 0
+    call = fake_service.calls[-1]
+    assert call["limit"] is None
+    assert call["search"] is None
+
+
+def test_orders_rejects_out_of_range_limit(client: TestClient) -> None:
+    assert client.get("/api/v1/orders", params={"limit": 0}).status_code == 422
+    assert client.get("/api/v1/orders", params={"limit": 5000}).status_code == 422
+    assert client.get("/api/v1/orders", params={"offset": -1}).status_code == 422
+    assert (
+        client.get("/api/v1/orders", params={"search": "x" * 101}).status_code == 422
+    )
+
+
+def test_orders_requires_api_key() -> None:
+    settings = make_settings(api_key="secret")
+    app = create_app(settings, service=FakeService())
+    with TestClient(app) as client:
+        assert client.get("/api/v1/orders").status_code == 401
+        allowed = client.get("/api/v1/orders", headers={"X-API-Key": "secret"})
+        assert allowed.status_code == 200
+
+
+def test_orders_accepts_decimal_strings(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    """``api.decimal_as_string`` turns DECIMAL columns into strings."""
+
+    def fake_fetch(**_kwargs: object) -> dict[str, object]:
+        return {
+            "total": 1,
+            "count": 1,
+            "limit": 50,
+            "offset": 0,
+            "orders": [{"id": 1, "gross": "120.5000", "labour": 10.5}],
+        }
+
+    fake_service.fetch_orders = fake_fetch  # type: ignore[method-assign]
+
+    response = client.get("/api/v1/orders")
+
+    assert response.status_code == 200
+    order = response.json()["orders"][0]
+    assert order["gross"] == "120.5000"
+    assert order["labour"] == 10.5
+    assert order["client_name"] is None
+

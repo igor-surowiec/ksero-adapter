@@ -6,6 +6,9 @@ import pytest
 
 from ks_adapter.errors import ColumnNotFound, InvalidRequest, QueryNotAllowed
 from ks_adapter.sql import (
+    LIKE_PARAMETER_BYTES,
+    MAX_MESSAGE_BYTES,
+    MAX_SEARCH_COLUMNS,
     Filter,
     build_search,
     build_where,
@@ -215,3 +218,29 @@ def test_build_search_without_known_columns_is_empty() -> None:
 def test_build_search_rejects_non_strings() -> None:
     with pytest.raises(InvalidRequest):
         build_search(5, COLUMNS, ["NAME"])
+
+
+def test_like_parameter_budget_matches_firebird_message_limit() -> None:
+    """Firebird allows 63 ``VARCHAR(1024)`` predictors, not 64."""
+    assert LIKE_PARAMETER_BYTES == 1026
+    assert MAX_SEARCH_COLUMNS == 63
+    assert MAX_SEARCH_COLUMNS * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
+    assert (MAX_SEARCH_COLUMNS + 1) * LIKE_PARAMETER_BYTES > MAX_MESSAGE_BYTES
+
+
+def test_build_search_refuses_too_many_columns() -> None:
+    wide = {f"COL{i}": f"COL{i}" for i in range(MAX_SEARCH_COLUMNS + 1)}
+
+    with pytest.raises(InvalidRequest) as excinfo:
+        build_search("ACME", wide, sorted(wide))
+
+    assert str(MAX_SEARCH_COLUMNS) in str(excinfo.value)
+
+
+def test_build_search_accepts_exactly_the_budgeted_number_of_columns() -> None:
+    wide = {f"COL{i}": f"COL{i}" for i in range(MAX_SEARCH_COLUMNS)}
+
+    sql, params = build_search("ACME", wide, sorted(wide))
+
+    assert len(params) == MAX_SEARCH_COLUMNS
+    assert sql.count("LIKE CAST(? AS VARCHAR(1024))") == MAX_SEARCH_COLUMNS

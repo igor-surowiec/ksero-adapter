@@ -13,6 +13,8 @@ from .schemas import (
     AgreementPage,
     ClientPage,
     HealthResponse,
+    MachinePage,
+    OrderPage,
     QueryRequest,
     QueryResponse,
     RowPage,
@@ -220,6 +222,82 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.fetch_agreements(limit=limit, offset=offset, search=search)
+
+    @router.get(
+        "/machines",
+        response_model=MachinePage,
+        tags=["data"],
+        summary="List machines (installed devices)",
+        description=(
+            "Returns a page of machines from the MASZYNA table with the most "
+            "useful fields (ids, brand/model/group, serial and asset numbers, "
+            "site and contact, installation/warranty dates, meter counters, "
+            "service schedule and technician, fee and financial summary). "
+            "'search' matches the brand, model, group, type, service type, "
+            "serials, asset number, city and technician (case sensitive "
+            "substring)."
+        ),
+        dependencies=protected,
+    )
+    def list_machines(
+        limit: int | None = Query(
+            default=None,
+            ge=1,
+            le=api.max_limit,
+            description=(
+                f"Machines per page (default {api.default_limit}, "
+                f"max {api.max_limit})"
+            ),
+        ),
+        offset: int = Query(default=0, ge=0, description="Number of machines to skip"),
+        search: str | None = Query(
+            default=None,
+            max_length=100,
+            description="Substring matched against brand, model, serial, ...",
+        ),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.fetch_machines(limit=limit, offset=offset, search=search)
+
+    @router.get(
+        "/orders",
+        response_model=OrderPage,
+        tags=["data"],
+        summary="List service orders (jobs)",
+        description=(
+            "Returns a page of service orders from the ZLECENIE table with the "
+            "most useful fields (ids, year and status, links, client and "
+            "machine snapshots, dates, service type, problem/diagnosis/work "
+            "done, technician, meter counters and the financial summary). "
+            "ZLECENIE is the widest table of the schema, so the columns are a "
+            "curated subset: Firebird caps a statement message at 64 KB, which "
+            "a full-width SELECT or a LIKE over every text column would "
+            "exceed. 'search' matches the client name, address, city, contact "
+            "data, machine brand/model/serial, asset number, service texts, "
+            "technician, status, invoice number and linked file (case "
+            "sensitive substring)."
+        ),
+        dependencies=protected,
+    )
+    def list_orders(
+        limit: int | None = Query(
+            default=None,
+            ge=1,
+            le=api.max_limit,
+            description=(
+                f"Orders per page (default {api.default_limit}, "
+                f"max {api.max_limit})"
+            ),
+        ),
+        offset: int = Query(default=0, ge=0, description="Number of orders to skip"),
+        search: str | None = Query(
+            default=None,
+            max_length=100,
+            description="Substring matched against client, machine, service texts, ...",
+        ),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.fetch_orders(limit=limit, offset=offset, search=search)
 
     @router.post(
         "/query",

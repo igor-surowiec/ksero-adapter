@@ -162,6 +162,68 @@ class FakeService:
             ],
         }
 
+    def fetch_machines(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "action": "fetch_machines",
+                "limit": limit,
+                "offset": offset,
+                "search": search,
+            }
+        )
+        return {
+            "total": 6,
+            "count": 1,
+            "limit": limit or 50,
+            "offset": offset,
+            "machines": [
+                {
+                    "id": offset + 1,
+                    "machine_id": offset + 1,
+                    "brand": "KONICA",
+                    "serial": "SN-0001",
+                    "client_id": 7,
+                }
+            ],
+        }
+
+    def fetch_orders(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "action": "fetch_orders",
+                "limit": limit,
+                "offset": offset,
+                "search": search,
+            }
+        )
+        return {
+            "total": 9,
+            "count": 1,
+            "limit": limit or 50,
+            "offset": offset,
+            "orders": [
+                {
+                    "id": offset + 1,
+                    "order_id": offset + 1,
+                    "client_name": "ACME",
+                    "status": "O",
+                    "client_id": 7,
+                }
+            ],
+        }
+
     def run_query(
         self, sql: str, *, limit: int | None = None, parameters: Any = None
     ) -> dict[str, Any]:

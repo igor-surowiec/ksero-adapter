@@ -169,3 +169,66 @@ def test_agreements_endpoint_over_http(service: DatabaseService) -> None:
         assert empty.status_code == 200
         assert empty.json()["agreements"] == []
 
+
+def test_machines_endpoint_lists_devices(service: DatabaseService) -> None:
+    page = service.fetch_machines(limit=5)
+    assert page["limit"] == 5
+    assert page["offset"] == 0
+    assert page["count"] == len(page["machines"])
+    assert page["total"] >= page["count"]
+    assert all(
+        {"id", "brand", "serial"} <= set(machine) for machine in page["machines"]
+    )
+
+
+def test_machines_endpoint_over_http(service: DatabaseService) -> None:
+    app = create_app(service.settings, service=service)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/machines", params={"limit": 3})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["limit"] == 3
+        assert isinstance(body["machines"], list)
+        assert body["count"] == len(body["machines"])
+        empty = client.get("/api/v1/machines", params={"search": "zzz-nobody-zzz"})
+        assert empty.status_code == 200
+        assert empty.json()["machines"] == []
+
+
+def test_orders_endpoint_lists_service_orders(service: DatabaseService) -> None:
+    page = service.fetch_orders(limit=5)
+    assert page["limit"] == 5
+    assert page["offset"] == 0
+    assert page["count"] == len(page["orders"])
+    assert page["total"] >= page["count"]
+    assert all({"id", "order_id", "status"} <= set(order) for order in page["orders"])
+
+
+def test_orders_endpoint_over_http(service: DatabaseService) -> None:
+    app = create_app(service.settings, service=service)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/orders", params={"limit": 3})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["limit"] == 3
+        assert isinstance(body["orders"], list)
+        assert body["count"] == len(body["orders"])
+        empty = client.get("/api/v1/orders", params={"search": "zzz-nobody-zzz"})
+        assert empty.status_code == 200
+        assert empty.json()["orders"] == []
+
+
+def test_orders_search_spans_many_columns_without_hitting_the_limit(
+    service: DatabaseService,
+) -> None:
+    """Every curated column must exist and still prepare together."""
+    from ks_adapter.service import ORDER_FIELDS, ORDERS_TABLE, ORDER_SEARCH_COLUMNS
+
+    columns = service.describe_table(ORDERS_TABLE)["columns"]
+    names = {column["name"].upper() for column in columns}
+    assert set(ORDER_SEARCH_COLUMNS) <= names
+    assert {column for column, _alias in ORDER_FIELDS} <= names
+
+    page = service.fetch_orders(search="a", limit=2)
+    assert page["count"] == len(page["orders"])
+

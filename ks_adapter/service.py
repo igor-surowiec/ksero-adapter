@@ -105,6 +105,162 @@ AGREEMENT_SEARCH_COLUMNS: tuple[str, ...] = (
     "PLIK",
 )
 
+#: Table holding machines (installed devices) in the BAZAMS schema.
+MACHINES_TABLE = "MASZYNA"
+
+#: Columns exposed by ``GET /machines`` mapped to their JSON field names.
+MACHINE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("ID_MASZYNA_TABLE", "id"),
+    ("ID_MASZYNA", "machine_id"),
+    ("ID_KLIENT", "client_id"),
+    ("ID_ODDZIAL", "branch_id"),
+    ("ID_FIRMA", "company_id"),
+    ("ID_MODEL", "model_id"),
+    ("ID_UMOWACPC", "agreement_id"),
+    ("MARKA", "brand"),
+    ("MODEL", "model"),
+    ("GRUPA", "group"),
+    ("TYP", "type"),
+    ("RODZAJ_US", "service_type"),
+    ("SERIAL", "serial"),
+    ("SERIAL2", "serial_alt"),
+    ("EWIDENCJA", "inventory_no"),
+    ("STOI", "location"),
+    ("ADRES", "address"),
+    ("MIEJSCOWOSC", "city"),
+    ("EMAIL", "email"),
+    ("INSTALACJA", "install_date"),
+    ("GWARANCJA", "warranty_months"),
+    ("GWARANCJA_DO", "warranty_until"),
+    ("LAST_M", "last_reading_date"),
+    ("LICZNIK", "counter"),
+    ("LICZNIKA3", "counter_a3"),
+    ("LICZNIK_TOTAL", "counter_total"),
+    ("BEZLICZ", "meterless"),
+    ("LAST_W", "last_service_date"),
+    ("NEXT_W", "next_service_date"),
+    ("KONSERWACJA", "maintenance_date"),
+    ("PRZEGLADY", "service_count"),
+    ("TECHNIK", "technician"),
+    ("ZALECENIA", "recommendations"),
+    ("UWAGI", "notes"),
+    ("OPLATA", "fee"),
+    ("KOSZTY", "costs"),
+    ("PRZYCHODY", "revenue"),
+    ("WYNIK", "profit"),
+    ("AKTYWNA", "active"),
+    ("KOLOROWA", "color"),
+)
+
+#: Columns matched by the ``search`` parameter of ``GET /machines``.
+MACHINE_SEARCH_COLUMNS: tuple[str, ...] = (
+    "MARKA",
+    "MODEL",
+    "GRUPA",
+    "TYP",
+    "RODZAJ_US",
+    "SERIAL",
+    "SERIAL2",
+    "EWIDENCJA",
+    "MIEJSCOWOSC",
+    "TECHNIK",
+)
+
+#: Table holding service orders (jobs) in the BAZAMS schema.
+ORDERS_TABLE = "ZLECENIE"
+
+#: Columns exposed by ``GET /orders`` mapped to their JSON field names.
+#:
+#: ``ZLECENIE`` is the widest table of the schema, so this is a hand-picked
+#: projection rather than ``SELECT *``: it keeps the response shape stable and
+#: the fetch message small (Firebird caps a statement message at 64 KB, which a
+#: ``SELECT *`` of a very wide table would eventually blow).
+ORDER_FIELDS: tuple[tuple[str, str], ...] = (
+    ("ID_ZLECENIE_TABLE", "id"),
+    ("ID_ZLECENIE", "order_id"),
+    ("ROK", "year"),
+    ("STAN", "status"),
+    ("ID_FIRMA", "company_id"),
+    ("ID_ODDZIAL", "branch_id"),
+    ("ID_KLIENT", "client_id"),
+    ("ID_MASZYNA", "machine_id"),
+    ("NAZWA", "client_name"),
+    ("ADRES", "address"),
+    ("KOD", "postcode"),
+    ("POCZTA", "city"),
+    ("TELEFON", "phone"),
+    ("E_MAIL", "email"),
+    ("STOI", "location"),
+    ("MARKA", "brand"),
+    ("MODEL", "model"),
+    ("SERIAL", "serial"),
+    ("EWIDENCJA", "inventory_no"),
+    ("DATA", "order_date"),
+    ("TERMIN", "due_date"),
+    ("DATA_Z", "scheduled_date"),
+    ("GODZINA_PLAN", "planned_time"),
+    ("DATA_PRZY", "accepted_on"),
+    ("DATA_WYDA", "issued_on"),
+    ("DATA_START", "started_on"),
+    ("DATA_STOP", "finished_on"),
+    ("RODZAJ_US", "service_type"),
+    ("USZKODZENIE", "damage"),
+    ("PROBLEM", "problem"),
+    ("DIAGNOZA", "diagnosis"),
+    ("WYKONANIE", "work_done"),
+    ("ZALECENIA", "recommendations"),
+    ("UWAGI", "notes"),
+    ("TECHNIK", "technician"),
+    ("ZGLASZA", "reported_by"),
+    ("OPERATOR", "operator"),
+    ("SIGNWHO", "signed_by"),
+    ("SIGNWHEN", "signed_at"),
+    ("LICZNIK", "counter"),
+    ("LICZNIKA3", "counter_a3"),
+    ("LICZNIK_TOTAL", "counter_total"),
+    ("ROBOCIZNA", "labour"),
+    ("DOJAZD", "travel"),
+    ("CZESCI", "parts"),
+    ("MATERIALY", "materials"),
+    ("NETTO", "net"),
+    ("VAT", "vat"),
+    ("BRUTTO", "gross"),
+    ("ZALICZKA", "prepayment"),
+    ("PLATNOSC", "payment_method"),
+    ("FAKTURA", "invoice_number"),
+    ("PLIK", "file"),
+)
+
+#: Columns matched by the ``search`` parameter of ``GET /orders``.
+#:
+#: Deliberately a subset: Firebird sizes the parameter message from the number
+#: of ``LIKE`` predicates and rejects more than
+#: :data:`ks_adapter.sql.MAX_SEARCH_COLUMNS` of them, so "every text column"
+#: (which ``ZLECENIE`` has plenty of) could never be searched in one statement.
+ORDER_SEARCH_COLUMNS: tuple[str, ...] = (
+    "NAZWA",
+    "ADRES",
+    "POCZTA",
+    "TELEFON",
+    "E_MAIL",
+    "STOI",
+    "MARKA",
+    "MODEL",
+    "SERIAL",
+    "EWIDENCJA",
+    "RODZAJ_US",
+    "USZKODZENIE",
+    "PROBLEM",
+    "DIAGNOZA",
+    "WYKONANIE",
+    "ZALECENIA",
+    "UWAGI",
+    "TECHNIK",
+    "ZGLASZA",
+    "STAN",
+    "FAKTURA",
+    "PLIK",
+)
 
 
 class DatabaseService:
@@ -209,7 +365,7 @@ class DatabaseService:
         """Return a page of contractors from the ``KLIENT`` table.
 
         Only :data:`CLIENT_FIELDS` are selected, so the response shape stays
-        stable even though the physical table has 61 columns.  Columns missing
+        stable even though the physical table is much wider.  Columns missing
         from the database are skipped instead of failing the request.
         """
         page = self._projection_page(
@@ -235,7 +391,7 @@ class DatabaseService:
         """Return a page of agreements from the ``UMOWACPC`` table.
 
         Like :meth:`fetch_clients` this is a hand-picked projection
-        (:data:`AGREEMENT_FIELDS`) of the 83 physical columns, so the printing
+        (:data:`AGREEMENT_FIELDS`) of the physical table, so the printing
         parameters (``FRAPAR*``, ``FRANAZ*``/``IDMAG*``) and per-item prices stay
         out of the payload unless the endpoint is extended explicitly.
         """
@@ -252,6 +408,71 @@ class DatabaseService:
         page["agreements"] = page.pop("rows")
         return page
 
+    def fetch_machines(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a page of machines (installed devices) from ``MASZYNA``.
+
+        The third curated projection (:data:`MACHINE_FIELDS`) of a wide
+        physical table: the generic ``DETAL*`` slots, the per-copy price
+        matrix (``KOPIA_*``, ``A3_*``, ``WYDRUK_*``, ``SKAN_*``, ``TRYB_*``,
+        ``TK``/``TC``/``TM``/``TY``), the ``KOSZTY_STALE*`` variants and the
+        ``FAV*``/``V_2010A``/``SYNWP`` bookkeeping columns stay out of the
+        payload unless the endpoint is extended explicitly.
+        """
+        page = self._projection_page(
+            MACHINES_TABLE,
+            MACHINE_FIELDS,
+            MACHINE_SEARCH_COLUMNS,
+            limit=limit,
+            offset=offset,
+            search=search,
+            order_columns=("ID_MASZYNA", "ID_MASZYNA_TABLE"),
+            label="machine",
+        )
+        page["machines"] = page.pop("rows")
+        return page
+
+    def fetch_orders(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a page of service orders (jobs) from the ``ZLECENIE`` table.
+
+        ``ZLECENIE`` is the widest table of the schema and Firebird caps a
+        statement message at 64 KB, so this endpoint avoids both traps:
+
+        * :data:`ORDER_FIELDS` is a hand-picked projection instead of
+          ``SELECT *``, which keeps the fetch message small;
+        * :data:`ORDER_SEARCH_COLUMNS` holds fewer columns than
+          :data:`ks_adapter.sql.MAX_SEARCH_COLUMNS`, because every ``search``
+          predicate is bound as a ``VARCHAR(1024)`` parameter and Firebird
+          rejects a wider parameter message with "Implementation limit
+          exceeded".
+
+        The budgets are asserted in the test-suite, so extending either list
+        too far fails the build instead of the request.
+        """
+        page = self._projection_page(
+            ORDERS_TABLE,
+            ORDER_FIELDS,
+            ORDER_SEARCH_COLUMNS,
+            limit=limit,
+            offset=offset,
+            search=search,
+            order_columns=("DATA", "ID_ZLECENIE_TABLE"),
+            label="order",
+        )
+        page["orders"] = page.pop("rows")
+        return page
+
     def _projection_page(
         self,
         table: str,
@@ -266,11 +487,12 @@ class DatabaseService:
     ) -> dict[str, Any]:
         """Page through a stable projection of ``table``.
 
-        Shared implementation of ``/clients`` and ``/agreements``: selects only
-        the ``fields`` that exist in the database, applies the optional
-        ``search`` substring, orders by ``order_columns`` (first available wins)
-        and returns ``total``/``count``/``limit``/``offset`` plus ``rows`` keyed
-        by the JSON aliases.
+        Shared implementation of ``/clients``, ``/agreements``,
+        ``/machines`` and ``/orders``: selects only the ``fields`` that exist in
+        the database,
+        applies the optional ``search`` substring, orders by ``order_columns``
+        (first available wins) and returns ``total``/``count``/``limit``/
+        ``offset`` plus ``rows`` keyed by the JSON aliases.
         """
         info = self.schema.get(table)
         limit = self.check_limit(limit)
