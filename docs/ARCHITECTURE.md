@@ -3,7 +3,7 @@
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
-read-only by default: the writing routes (`POST /clients`, `POST /machines`,
+read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
@@ -137,6 +137,29 @@ Variations:
   `ID_FIRMA`), so the answer is a `Machine` with `201`. `SYNWP` is never set, so
   nothing is queued for synchronisation.
 
+`POST /agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
+A positive `ID_KLIENT` comes from the URL path; the optional body contains
+only agreement details. Both agreement identifiers are read-only.
+The service normalises `AGREEMENT_WRITE_COLUMNS` with `AGREEMENT_TEXT_LENGTHS`
+and merges `AGREEMENT_INSERT_DEFAULTS` through `_insert_plan()`. It opens
+`pool.write_session(reserve_table="UMOWACPC")`, which rolls back any idle health
+check transaction and starts READ COMMITTED with a PROTECTED WRITE reservation.
+This serialises agreement writers across connections and service processes.
+The lock timeout uses `database.acquire_timeout` in whole seconds (minimum one).
+
+`sql.build_next_available_id()` finds the smallest unused positive INTEGER
+from candidate `1` and successors of occupied IDs, ignoring nonpositive IDs and
+avoiding INTEGER overflow. The service binds that ID into `build_insert()` and
+serialises RETURNING before committing the same transaction. Deletions therefore
+make IDs reusable; concurrent allocations cannot choose the same gap. Firebird
+still generates the surrogate `ID_UMOWACPC_TABLE`. The response is an `Agreement`
+with `201`. Calculated financial totals remain excluded from the payload.
+The static profile matches legacy agreement `ID_UMOWACPC=1`, including
+`AKTYWNA=TAK`. If `U_START` is omitted or null, the service reads Firebird
+`CURRENT_DATE` within the reserved transaction and inserts that date. Supplied
+start dates and active flags win. Type, company, agreement number and end date
+have no inferred default. No new database objects are needed.
+
 `PATCH /clients/{id_klient}` passes only explicitly supplied fields from
 `ClientUpdate` to `DatabaseService.update_client()`. It uses the same write gate
 and field whitelist, preserving explicit nulls and blanks when normalising.
@@ -203,7 +226,7 @@ unauthenticated `GET /` liveness route.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
 `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`,
-`GET /agreements`, `GET /machines`, `POST /machines`, `GET /orders`,
+`GET /agreements`, `POST /agreements/{id_klient}`, `GET /machines`, `POST /machines`, `GET /orders`,
 `GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
 first two is protected by the shared `protected` dependency list. Parameter bounds
 are generated from the settings; handlers return plain dicts and the declared
@@ -244,7 +267,8 @@ search and sort column must pass.
 doubled), `ensure_read_only()`, `strip_sql_literals()` (drops comments and `'...'`/`"..."`
 literals before the keyword scan), `build_insert()` (quoted column list, `?` placeholders,
 optional `RETURNING`), `build_update()` (bound assignments and unique key),
-`build_delete()` (bound unique key and `RETURNING`), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
+`build_delete()` (bound unique key and `RETURNING`),
+`build_next_available_id()` (first unused positive INTEGER), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
 Operators: `eq, ne, gt, ge, lt, le, like, contains, startswith,
 endswith, in, isnull, notnull`. Values are always `?` parameters; `LIKE` patterns escape
 `\ % _`, use `ESCAPE '\'`, and wrap the parameter in `CAST(? AS VARCHAR(1024))` to avoid
@@ -264,7 +288,8 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`create_client()`, `create_machine()`, `update_client()`, `delete_client()`,
+`create_client()`, `create_machine()`, `create_agreement()`, `update_client()`,
+`delete_client()`,
 `run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
 `_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
@@ -314,7 +339,8 @@ they belong to the program's clock and data version.
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
 `ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
 columns, unknown fields rejected),
-`Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `MachineCreate` (the
+`Agreement`/`AgreementPage`, `AgreementCreate` (optional details; client ID in the URL),
+`Machine`/`MachinePage`, `MachineCreate` (the
 `POST /machines` body: all machine columns optional; `id_klient` defaults to `0`, unknown fields
 rejected), `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`. Projection

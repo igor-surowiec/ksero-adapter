@@ -850,3 +850,83 @@ def test_cors_allows_client_delete() -> None:
         )
     assert response.status_code == 200
     assert "DELETE" in response.headers["access-control-allow-methods"]
+
+
+def test_create_agreement_returns_stored_projection(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    payload = {
+        "umowa": "CPC/2026/001",
+        "u_start": "2026-11-08", "rabat": "2.5000", "uwagi": None,
+    }
+    response = client.post("/api/v1/agreements/7", json=payload)
+    assert response.status_code == 201
+    assert response.json()["id_umowacpc_table"] == 3001
+    assert response.json()["id_umowacpc"] == 1
+    import datetime as dt
+    from decimal import Decimal
+
+    assert fake_service.calls[-1] == {
+        "action": "create_agreement", "values": {
+            "id_klient": 7, "umowa": "CPC/2026/001",
+            "u_start": dt.date(2026, 11, 8), "rabat": Decimal("2.5000"),
+        },
+    }
+
+
+@pytest.mark.parametrize("payload", [
+    {"id_klient": None}, {"id_klient": 7}, {"id_umowacpc": 51},
+    {"id_umowacpc_table": 1}, {"koszty": 1},
+    {"umowa": "x" * 101}, {"u_start": "invalid"},
+])
+def test_create_agreement_rejects_invalid_fields(
+    client: TestClient, payload: dict[str, Any],
+) -> None:
+    assert client.post("/api/v1/agreements/7", json=payload).status_code == 422
+
+
+def test_create_agreement_requires_api_key() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    payload = {}
+    with TestClient(app) as client:
+        assert client.post("/api/v1/agreements/7", json=payload).status_code == 401
+        assert client.post(
+            "/api/v1/agreements/7", json=payload,
+            headers={"X-API-Key": "secret"},
+        ).status_code == 201
+
+
+def test_create_agreement_reports_disabled_writes() -> None:
+    class ReadOnlyService(FakeService):
+        def create_agreement(self, values: Mapping[str, Any]) -> dict[str, Any]:
+            raise WritesDisabled("Writes are disabled")
+
+    app = create_app(make_settings(), service=ReadOnlyService())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/agreements/7", json={}
+        )
+    assert response.status_code == 403
+    assert response.json()["error"] == "WritesDisabled"
+
+
+@pytest.mark.parametrize("with_body", [False, True])
+def test_create_agreement_needs_only_client_path(
+    client: TestClient, fake_service: FakeService, with_body: bool,
+) -> None:
+    response = client.post(
+        "/api/v1/agreements/42", **({"json": {}} if with_body else {})
+    )
+    assert response.status_code == 201
+    assert fake_service.calls[-1] == {
+        "action": "create_agreement", "values": {"id_klient": 42},
+    }
+
+
+@pytest.mark.parametrize("key", ["0", "-1", "invalid"])
+def test_create_agreement_validates_client_path(client: TestClient, key: str) -> None:
+    assert client.post(f"/api/v1/agreements/{key}").status_code == 422
+
+
+def test_create_agreement_old_post_route_is_removed(client: TestClient) -> None:
+    assert client.post("/api/v1/agreements", json={"id_klient": 42}).status_code == 405

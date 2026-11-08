@@ -15,7 +15,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -617,3 +617,156 @@ def test_create_machine_endpoint_without_owner(
         assert stored["ID_KLIENT"] == 0
     finally:
         delete_machine(write_service, machine["id_maszyna_table"])
+
+
+def delete_agreement(service: DatabaseService, key: int) -> None:
+    """Remove only the disposable agreement identified by its table key."""
+    with service.pool.write_session() as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                'DELETE FROM "UMOWACPC" WHERE "ID_UMOWACPC_TABLE" = ?', [key]
+            )
+        finally:
+            cursor.close()
+
+
+@requires_writable
+def test_create_agreement_endpoint_stores_fields_and_legacy_defaults(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER AGREEMENT TEST"})
+    agreement = None
+    try:
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.post(f"/api/v1/agreements/{owner['id_klient']}", json={
+                "umowa": " KS ADAPTER AGREEMENT TEST ", "u_start": "2026-11-08",
+                "rabat": "2.5000", "termin": 14, "aktywna": "TAK",
+            })
+        assert response.status_code == 201
+        agreement = response.json()
+        assert agreement["id_umowacpc"] >= 1
+        assert agreement["id_umowacpc_table"]
+        assert agreement["umowa"] == "KS ADAPTER AGREEMENT TEST"
+        assert agreement["u_start"] == "2026-11-08"
+        assert float(agreement["rabat"]) == 2.5
+        assert agreement["platnosc"] == "$_$"
+        assert agreement["termin"] == 14
+        stored = write_service.fetch_rows("UMOWACPC", filters=json.dumps({
+            "ID_UMOWACPC_TABLE": agreement["id_umowacpc_table"],
+        }))["rows"][0]
+        assert stored["ID_KLIENT"] == owner["id_klient"]
+        assert stored["AUTOCPC"] == 0
+        assert stored["OPIEKUN"] == ""
+        assert stored["FRAPAR1"] == 0
+        assert stored["FRANAZ1"] == ""
+    finally:
+        if agreement is not None:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+def test_create_agreement_is_refused_without_allow_writes(
+    service: DatabaseService,
+) -> None:
+    with pytest.raises(WritesDisabled):
+        service.create_agreement({"id_klient": 7})
+
+
+@requires_writable
+def test_create_agreement_reuses_a_deleted_gap(write_service: DatabaseService) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER GAP TEST"})
+    agreements = []
+    try:
+        for _ in range(3):
+            agreements.append(write_service.create_agreement({
+                "id_klient": owner["id_klient"],
+            }))
+        removed = agreements.pop(1)
+        delete_agreement(write_service, removed["id_umowacpc_table"])
+        replacement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        agreements.append(replacement)
+        assert replacement["id_umowacpc"] == removed["id_umowacpc"]
+    finally:
+        for agreement in agreements:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_concurrent_agreement_allocation_across_services(
+    write_service: DatabaseService,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    owner = write_service.create_client({"nazwa": "KS ADAPTER CONCURRENT TEST"})
+    peer = DatabaseService(write_service.settings)
+    agreements = []
+    errors = []
+    start = Barrier(4)
+
+    def create(instance: DatabaseService) -> dict[str, Any]:
+        start.wait(timeout=10)
+        return instance.create_agreement({"id_klient": owner["id_klient"]})
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(create, instance) for instance in (
+                write_service, peer, write_service, peer,
+            )]
+            for future in futures:
+                try:
+                    agreements.append(future.result(timeout=20))
+                except Exception as exc:
+                    errors.append(exc)
+        assert not errors, errors
+        assert len({a["id_umowacpc"] for a in agreements}) == 4
+    finally:
+        peer.close()
+        for agreement in agreements:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_create_agreement_defaults_match_legacy_reference(
+    write_service: DatabaseService,
+) -> None:
+    reference = write_service.fetch_rows(
+        "UMOWACPC", filters=json.dumps({"ID_UMOWACPC": 1})
+    )["rows"]
+    if len(reference) != 1:
+        pytest.skip("requires one legacy agreement with ID_UMOWACPC=1")
+    owner = write_service.create_client({"nazwa": "KS ADAPTER DEFAULTS TEST"})
+    agreement = None
+    try:
+        before = write_service.run_query(
+            "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"
+        )
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.post(f"/api/v1/agreements/{owner['id_klient']}")
+        assert response.status_code == 201
+        agreement = response.json()
+        after = write_service.run_query(
+            "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"
+        )
+        assert agreement["u_start"] in {
+            before["rows"][0]["TODAY"], after["rows"][0]["TODAY"],
+        }
+        assert agreement["aktywna"] == "TAK"
+        stored = write_service.fetch_rows("UMOWACPC", filters=json.dumps({
+            "ID_UMOWACPC_TABLE": agreement["id_umowacpc_table"],
+        }))["rows"][0]
+        excluded = {"ID_UMOWACPC_TABLE", "ID_UMOWACPC", "ID_KLIENT",
+                    "UMOWA", "TYP", "U_START"}
+        differences = [name for name in stored if name not in excluded
+                       and stored[name] != reference[0][name]]
+        # Report only column names, never customer record values.
+        assert not differences, differences
+    finally:
+        if agreement is not None:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])

@@ -3,7 +3,7 @@
 Guidance for AI agents (and new contributors) working on **ks-adapter**, a
 FastAPI bridge in front of a Firebird database (Firebird 2.5, `WIN1250` Polish
 data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
-`POST /clients`, `POST /machines`, `PATCH /clients/{id_klient}` and
+`POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}` and
 `DELETE /clients/{id_klient}`
 are opt-in write routes.
 
@@ -16,7 +16,7 @@ get wrong.
 
 1. **Reads are read-only.** Every read statement passes `sql.ensure_read_only()`
    and must stay a single `SELECT`/`WITH`. The only exceptions are the curated
-   writes (`POST /clients`, `POST /machines`, client updates/deletions), gated behind
+   writes (client/machine/agreement inserts and client updates/deletions), gated behind
    `api.allow_writes` (`errors.WritesDisabled` → 403), their statements come
    from curated SQL builders (`build_insert`, `build_update`, `build_delete`)
    and run **only** inside
@@ -73,7 +73,8 @@ marker.
 - `ks_adapter/api.py` - routes (`create_router`), `get_service`,
   `require_api_key`.
 - `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging,
-  `create_client()`, `create_machine()`, `update_client()` and `delete_client()`.
+  `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`
+  and `delete_client()`.
 - `ks_adapter/sql.py` - read-only guard, `build_insert()` / `build_update()`,
   filters, ordering, `LIKE` search.
 - `ks_adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
@@ -136,6 +137,9 @@ the variable is public.
    omitted fields, and never merge insert defaults into the existing row.
    For deletions use `sql.build_delete()` with a unique key predicate.
    `DEL_KLIENT_RECORD` also deletes the client's machines and contacts.
+   Agreement creation allocates the lowest unused positive `ID_UMOWACPC`
+   inside `write_session(reserve_table="UMOWACPC")`; keep allocation and insert
+   in that same reserved transaction to prevent races across processes.
 5. Execute it inside `self.pool.write_session()` and only there: it commits on
    success and rolls back on any exception.
 6. Give the offline suite a `_Pool.write_session()` case (`committed` /

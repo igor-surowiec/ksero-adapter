@@ -3,9 +3,8 @@
 HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.5,
 `WIN1250` data).
 
-Every request runs a single SQL statement with quoted identifiers, bound
-parameters and a capped row count. Reads never modify anything; the only writes
-are curated client/machine inserts, client updates and deletions, disabled
+Requests use quoted identifiers, bound parameters and capped read results. Reads never modify anything; the only writes
+are curated client/machine/agreement inserts and client updates/deletions, off
 unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
 the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -35,7 +34,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -59,6 +58,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
 | `DELETE` | `/clients/{id_klient}` | delete a contractor and trigger-managed machines/contacts (`204`) |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
+| `POST` | `/agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
@@ -125,6 +125,40 @@ triggers. Requires `KS_ALLOW_WRITES=true` and the configured API key.
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/api/v1/clients/42
+```
+
+`POST /agreements/{id_klient}` inserts a service agreement into `UMOWACPC`. The positive
+`id_klient` (contractor) comes from the URL path. The request body is optional;
+omit it or send `{}` to use defaults. Do not include `id_klient` in the body. The adapter assigns `id_umowacpc` as the
+lowest unused positive integer, starting at `1` and reusing gaps (existing IDs
+`1, 2, 4` produce `3`). The trigger generates `id_umowacpc_table`. Both IDs are
+read-only and rejected if included in the request.
+
+Allocation and insertion run in one transaction with a protected write
+reservation on `UMOWACPC`, so concurrent requests cannot select the same free
+ID. The reservation is released on commit or rollback; lock waits are bounded
+using `database.acquire_timeout` (whole seconds, minimum one). No database
+schema changes or new generators are required.
+
+Optional fields are `id_oddzial`, `id_odbiorca`, `id_firma`, `umowa`, `typ`,
+`handlowiec`, `opiekun`, `opiekunmail`, `opiekuntel`, `u_start`, `u_stop`,
+`warunki`, `uwagi`, `rabat`, `platnosc`, `termin`, `aktywna`, `strony_mono`,
+`strony_kolor`, `skany`, `fraemail` and `plik`. Dates use `YYYY-MM-DD` and
+`rabat` accepts a decimal value. Strings are trimmed and checked against the
+column widths. Unknown fields, generated table keys and calculated financial
+totals (`koszty`, `przychody`, `wynik`) are rejected with `422`.
+
+Omitted/null/blank optional fields use the shared legacy profile
+(`AGREEMENT_INSERT_DEFAULTS`: empty contact and notes fields, zeroed flags,
+mono/colour counts and fee slots, and the legacy payment marker `$_$`) or column
+defaults. The profile matches the legacy agreement with `ID_UMOWACPC = 1`,
+including `aktywna = "TAK"`. Omitted or null `u_start` uses Firebird
+`CURRENT_DATE` at insertion (the database server's date). Explicit `u_start`
+and `aktywna` values override these defaults. Agreement number, type, end date
+and company are left to the caller; reference-specific values are not copied. The response is the stored `Agreement` projection with `201`.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
 ```
 
 `POST /machines` takes the lower-cased column names of the `GET /machines`

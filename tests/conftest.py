@@ -15,6 +15,7 @@ from ks_adapter.config import (
     ServerSettings,
 )
 from ks_adapter.errors import ColumnNotFound, TableNotFound
+from ks_adapter.serialization import to_jsonable
 
 
 def make_settings(**api_kwargs: Any) -> AppSettings:
@@ -201,6 +202,10 @@ class FakeService:
                 }
             ],
         }
+
+    def create_agreement(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        self.calls.append({"action": "create_agreement", "values": dict(values)})
+        return to_jsonable({"id_umowacpc_table": 3001, "id_umowacpc": 1, **values})
 
     def fetch_machines(
         self,

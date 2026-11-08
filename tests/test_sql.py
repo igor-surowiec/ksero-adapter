@@ -277,3 +277,24 @@ def test_build_delete_quotes_identifiers_and_binds_the_key() -> None:
     assert build_delete('we"ird', key='I"D') == (
         'DELETE FROM "we""ird" WHERE "I""D" = ? RETURNING "I""D"'
     )
+
+
+@pytest.mark.parametrize("occupied, expected", [
+    ([], 1), ([2, 3], 1), ([1, 2, 4], 3), ([1, 2, 3], 4),
+    ([-2, 0, 1, 1, 3, None], 2), ([2147483647], 1),
+])
+def test_next_available_id_finds_the_first_positive_gap(
+    occupied: list[int | None], expected: int,
+) -> None:
+    import sqlite3
+    from ks_adapter.sql import build_next_available_id
+
+    with sqlite3.connect(":memory:") as connection:
+        connection.execute('CREATE TABLE "RDB$DATABASE" (DUMMY INTEGER)')
+        connection.execute('INSERT INTO "RDB$DATABASE" VALUES (1)')
+        connection.execute('CREATE TABLE "we""ird" ("I""D" INTEGER)')
+        connection.executemany(
+            'INSERT INTO "we""ird" VALUES (?)', [(value,) for value in occupied]
+        )
+        query = build_next_available_id('we"ird', 'I"D')
+        assert connection.execute(query).fetchone()[0] == expected

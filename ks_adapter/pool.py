@@ -67,18 +67,29 @@ class ConnectionPool:
             self._release(connection)
 
     @contextmanager
-    def write_session(self) -> Iterator[Any]:
+    def write_session(self, *, reserve_table: str | None = None) -> Iterator[Any]:
         """Borrow a connection for a write and commit when the block succeeds.
 
         The transaction is committed only after the ``with`` block returns; an
         exception during the block (or during the commit itself) rolls it back,
         so a failed request never leaves half-written rows behind.  This is the
         only place in the adapter that commits - ``session()`` keeps reading
-        requests read-only.
+        requests read-only. ``reserve_table`` serialises writers to that table
+        while the transaction reads committed values and allocates an identifier.
         """
         connection = self._acquire()
         discarded = False
         try:
+            if reserve_table is not None:
+                # An idle-connection health check may have started a transaction.
+                connection.rollback()
+                tpb = fdb.TPB()
+                tpb.isolation_level = fdb.isc_tpb_read_committed
+                tpb.lock_timeout = max(1, int(self._settings.acquire_timeout))
+                tpb.table_reservation[reserve_table] = (
+                    fdb.isc_tpb_protected, fdb.isc_tpb_lock_write
+                )
+                connection.begin(tpb=tpb)
             yield connection
             connection.commit()
         except BaseException:

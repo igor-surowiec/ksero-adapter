@@ -128,6 +128,26 @@ def build_delete(table: str, *, key: str) -> str:
     )
 
 
+def build_next_available_id(table: str, key: str) -> str:
+    """Find the lowest unused positive INTEGER; caller must reserve the table.
+
+    Candidates are 1 and the successor of every occupied positive ID. BIGINT
+    arithmetic avoids overflow at the INTEGER boundary; nonpositive IDs do not
+    consume a candidate. NULL means the positive INTEGER range is exhausted.
+    """
+    table_sql = quote_identifier(table)
+    key_sql = quote_identifier(key)
+    return (
+        'SELECT MIN(candidate.NEXT_ID) FROM ('
+        'SELECT CAST(1 AS BIGINT) AS NEXT_ID FROM RDB$DATABASE UNION ALL '
+        f'SELECT CAST({key_sql} AS BIGINT) + 1 FROM {table_sql} '
+        f'WHERE {key_sql} >= 1 AND {key_sql} < 2147483647'
+        ') candidate WHERE NOT EXISTS ('
+        f'SELECT 1 FROM {table_sql} occupied '
+        f'WHERE occupied.{key_sql} = candidate.NEXT_ID)'
+    )
+
+
 def ensure_read_only(sql: str) -> str:
     """Validate that ``sql`` is a single read-only SELECT/WITH statement.
 

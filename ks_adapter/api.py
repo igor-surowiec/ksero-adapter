@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response, 
 from .config import AppSettings
 from .errors import AuthenticationError
 from .schemas import (
+    Agreement,
+    AgreementCreate,
     AgreementPage,
     Client,
     ClientCreate,
@@ -295,6 +297,34 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.fetch_agreements(limit=limit, offset=offset, search=search)
+
+    @router.post(
+        "/agreements/{id_klient}",
+        response_model=Agreement,
+        status_code=status.HTTP_201_CREATED,
+        tags=["data"],
+        summary="Create a service agreement (UMOWACPC)",
+        description=(
+            "Creates an agreement for id_klient from the URL path. The optional "
+            "body contains agreement details. The adapter "
+            "assigns id_umowacpc as the lowest unused positive integer, "
+            "reusing gaps. The database generates id_umowacpc_table. "
+            "Both identifiers are read-only. Optional fields "
+            "use legacy defaults, including aktywna=TAK and u_start set to the "
+            "database current date; supplied values override them. "
+            "Returns the same projection as GET /agreements. Generated table "
+            "keys and financial totals cannot be supplied. Requires "
+            "api.allow_writes and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def create_agreement(
+        id_klient: int = Path(ge=1),
+        payload: AgreementCreate | None = None,
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        values = payload.model_dump(exclude_none=True) if payload else {}
+        return service.create_agreement({"id_klient": id_klient, **values})
 
     @router.get(
         "/machines",

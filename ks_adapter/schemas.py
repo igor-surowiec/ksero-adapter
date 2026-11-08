@@ -8,7 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .service import CLIENT_TEXT_LENGTHS, MACHINE_TEXT_LENGTHS
+from .service import (
+    AGREEMENT_TEXT_LENGTHS,
+    CLIENT_TEXT_LENGTHS,
+    MACHINE_TEXT_LENGTHS,
+)
 
 #: ``NUMERIC``/``DECIMAL`` columns are serialised as floats, or as strings when
 #: ``api.decimal_as_string`` is enabled (see ``serialization.to_jsonable``), so
@@ -250,6 +254,78 @@ class AgreementPage(BaseModel):
     limit: int
     offset: int
     agreements: list[Agreement]
+
+
+class AgreementCreate(BaseModel):
+    """Optional agreement details; the client ID comes from the URL path.
+
+    The business ID is the lowest unused positive integer; Firebird generates
+    the table key. Omitted fields receive the shared
+    legacy profile or column defaults; unknown fields are rejected.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id_oddzial: int | None = Field(default=None, description="Branch")
+    id_odbiorca: int | None = Field(default=None, description="Recipient")
+    id_firma: int | None = Field(default=None, description="Company")
+    umowa: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["UMOWA"],
+        description="Agreement number",
+    )
+    typ: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["TYP"],
+        description="Agreement type",
+    )
+    handlowiec: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["HANDLOWIEC"],
+        description="Salesperson",
+    )
+    opiekun: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["OPIEKUN"],
+        description="Supervisor",
+    )
+    opiekunmail: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["OPIEKUNMAIL"],
+        description="Supervisor e-mail",
+    )
+    opiekuntel: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["OPIEKUNTEL"],
+        description="Supervisor phone",
+    )
+    warunki: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["WARUNKI"],
+        description="Contract terms",
+    )
+    uwagi: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["UWAGI"],
+        description="Notes",
+    )
+    platnosc: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["PLATNOSC"],
+        description="Payment method; legacy default $_$",
+    )
+    aktywna: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["AKTYWNA"],
+        description="Raw active flag; defaults to TAK",
+    )
+    fraemail: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["FRAEMAIL"],
+        description="Invoice e-mail",
+    )
+    plik: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["PLIK"],
+        description="Linked file",
+    )
+    u_start: date | None = Field(
+        default=None, description="Start date; defaults to the database current date"
+    )
+    u_stop: date | None = Field(default=None, description="End date")
+    rabat: Decimal | None = Field(default=None, description="Discount")
+    termin: int | None = Field(default=None, description="Payment term in days")
+    strony_mono: int | None = Field(default=None, description="Mono pages")
+    strony_kolor: int | None = Field(default=None, description="Colour pages")
+    skany: int | None = Field(default=None, description="Scans")
 
 
 class Machine(BaseModel):
