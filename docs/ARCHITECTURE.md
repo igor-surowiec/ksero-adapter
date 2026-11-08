@@ -5,6 +5,7 @@
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
 read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
+`PATCH /agreements/{id_umowacpc}`,
 `DELETE /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
@@ -161,6 +162,27 @@ The static profile matches legacy agreement `ID_UMOWACPC=1`, including
 start dates and active flags win. Type, company, agreement number and end date
 have no inferred default. No new database objects are needed.
 
+Agreement payloads also accept an optional `machines` array. `_agreement_payload()`
+separates it from column values, validates positive INTEGER IDs, limits list
+size and removes repeated entries. Machine metadata is loaded before opening
+the write transaction, so a pool with one connection also works. After the
+agreement insert/update, `_link_agreement_machines()` uses that same cursor:
+it resolves each `ID_MASZYNA` to exactly one surrogate key, then applies
+`sql.build_update()` to set only `MASZYNA.ID_UMOWACPC`. Missing and ambiguous
+records raise `RecordNotFound` / `RecordConflict`, rolling back the agreement
+and every prior machine link. Machine ownership is preserved. Omission is represented by None and leaves
+links unchanged. A supplied list (including empty) replaces all links: a bound
+`build_update()` clears this agreement's existing references to NULL before
+assigning the requested records. Missing/ambiguous IDs roll back those clears
+as well. Other agreements' unlisted machines remain untouched.
+
+`PATCH /agreements/{id_umowacpc}` validates `AgreementUpdate`, preserves omitted
+fields and opens the same reserved agreement transaction. A bounded SELECT
+rejects missing/ambiguous agreement business IDs. It updates supplied columns
+with `build_update()` / RETURNING, optionally links machines, serialises the
+agreement and commits. It does not apply insertion defaults. A request may
+contain only the machine array; a completely empty update is refused.
+
 `PATCH /clients/{id_klient}` passes only explicitly supplied fields from
 `ClientUpdate` to `DatabaseService.update_client()`. It uses the same write gate
 and field whitelist, preserving explicit nulls and blanks when normalising.
@@ -239,7 +261,8 @@ unauthenticated `GET /` liveness route.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
 `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`,
-`GET /agreements`, `POST /agreements/{id_klient}`, `GET /machines`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `GET /orders`,
+`GET /agreements`, `POST /agreements/{id_klient}`,
+`PATCH /agreements/{id_umowacpc}`, `GET /machines`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `GET /orders`,
 `GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
 first two is protected by the shared `protected` dependency list. Parameter bounds
 are generated from the settings; handlers return plain dicts and the declared
@@ -302,7 +325,7 @@ pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
 `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`,
-`delete_client()`, `update_machine()`,
+`delete_client()`, `update_machine()`, `update_agreement()`,
 `run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
 `_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
@@ -352,7 +375,8 @@ they belong to the program's clock and data version.
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
 `ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
 columns, unknown fields rejected),
-`Agreement`/`AgreementPage`, `AgreementCreate` (optional details; client ID in the URL),
+`Agreement`/`AgreementPage`, `AgreementCreate` (optional details/machines; client ID in the URL),
+`AgreementUpdate` (partial agreement update),
 `Machine`/`MachinePage`, `MachineUpdate` (partial machine update), `MachineCreate` (the
 `POST /machines` body: all machine columns optional; `id_klient` defaults to `0`, unknown fields
 rejected), `Order`/`OrderPage`,

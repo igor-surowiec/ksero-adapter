@@ -4,7 +4,8 @@ Guidance for AI agents (and new contributors) working on **ks-adapter**, a
 FastAPI bridge in front of a Firebird database (Firebird 2.5, `WIN1250` Polish
 data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
 `POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}` and
-`DELETE /clients/{id_klient}` and `PATCH /machines/{id_maszyna}`
+`DELETE /clients/{id_klient}`, `PATCH /machines/{id_maszyna}` and
+`PATCH /agreements/{id_umowacpc}`
 are opt-in write routes.
 
 User documentation is [`README.md`](README.md), the flow and file-by-file
@@ -16,7 +17,7 @@ get wrong.
 
 1. **Reads are read-only.** Every read statement passes `sql.ensure_read_only()`
    and must stay a single `SELECT`/`WITH`. The only exceptions are the curated
-   writes (client/machine/agreement inserts and client/machine updates and client deletions), gated behind
+   writes (client/machine/agreement inserts and client/machine/agreement updates and client deletions), gated behind
    `api.allow_writes` (`errors.WritesDisabled` → 403), their statements come
    from curated SQL builders (`build_insert`, `build_update`, `build_delete`)
    and run **only** inside
@@ -140,6 +141,8 @@ the variable is public.
    Agreement creation allocates the lowest unused positive `ID_UMOWACPC`
    inside `write_session(reserve_table="UMOWACPC")`; keep allocation and insert
    in that same reserved transaction to prevent races across processes.
+   Optional agreement machine links must use the same cursor/transaction;
+   missing or ambiguous machine IDs must roll back the complete request.
 5. Execute it inside `self.pool.write_session()` and only there: it commits on
    success and rolls back on any exception.
 6. Give the offline suite a `_Pool.write_session()` case (`committed` /

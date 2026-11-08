@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,6 +12,7 @@ from .service import (
     AGREEMENT_TEXT_LENGTHS,
     CLIENT_TEXT_LENGTHS,
     MACHINE_TEXT_LENGTHS,
+    MAX_AGREEMENT_MACHINES,
 )
 
 #: ``NUMERIC``/``DECIMAL`` columns are serialised as floats, or as strings when
@@ -266,6 +267,11 @@ class AgreementCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    machines: list[Annotated[int, Field(strict=True, ge=1, le=2147483647)]] = Field(
+        default_factory=list, max_length=MAX_AGREEMENT_MACHINES,
+        description="Complete ID_MASZYNA list; omitted preserves, empty clears links",
+    )
+
     id_oddzial: int | None = Field(default=None, description="Branch")
     id_odbiorca: int | None = Field(default=None, description="Recipient")
     id_firma: int | None = Field(default=None, description="Company")
@@ -326,6 +332,20 @@ class AgreementCreate(BaseModel):
     strony_mono: int | None = Field(default=None, description="Mono pages")
     strony_kolor: int | None = Field(default=None, description="Colour pages")
     skany: int | None = Field(default=None, description="Scans")
+
+
+class AgreementUpdate(AgreementCreate):
+    """Partial agreement details and optional replacement machine links.
+
+    Omitted columns stay unchanged; defaults apply only to creation.
+    """
+
+    id_klient: int | None = Field(default=None, ge=1, description="Contractor ID")
+    u_start: date | None = Field(default=None, description="Start date; null clears")
+    aktywna: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["AKTYWNA"],
+        description="Raw active flag; omitted keeps current value",
+    )
 
 
 class Machine(BaseModel):

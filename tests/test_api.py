@@ -990,3 +990,71 @@ def test_update_machine_reports_domain_errors(error: Exception, status: int) -> 
         response = client.patch("/api/v1/machines/4", json={"marka": "KONICA"})
     assert response.status_code == status
     assert response.json()["error"] == type(error).__name__
+
+
+def test_create_agreement_forwards_optional_machines(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.post("/api/v1/agreements/7", json={"machines": [4, 9]})
+    assert response.status_code == 201
+    assert fake_service.calls[-1] == {
+        "action": "create_agreement", "values": {"id_klient": 7, "machines": [4, 9]},
+    }
+
+
+def test_update_agreement_forwards_only_supplied_fields(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.patch("/api/v1/agreements/51", json={
+        "machines": [4, 9], "uwagi": None,
+    })
+    assert response.status_code == 200
+    assert response.json()["id_umowacpc"] == 51
+    assert fake_service.calls[-1] == {
+        "action": "update_agreement", "id_umowacpc": 51,
+        "values": {"machines": [4, 9], "uwagi": None},
+    }
+
+
+@pytest.mark.parametrize("machines", [None, "4", [0], [-1], [True], ["4"],
+                                      [2147483648], [1] * 1001])
+def test_agreement_routes_validate_machine_arrays(
+    client: TestClient, machines: Any,
+) -> None:
+    for method in (client.post, client.patch):
+        assert method(
+            "/api/v1/agreements/7", json={"machines": machines}
+        ).status_code == 422
+
+
+def test_update_agreement_requires_api_key_and_valid_path() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        assert client.patch(
+            "/api/v1/agreements/51", json={"machines": [4]}
+        ).status_code == 401
+        assert client.patch(
+            "/api/v1/agreements/51", json={"machines": [4]},
+            headers={"X-API-Key": "secret"},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/agreements/0", json={"machines": [4]},
+            headers={"X-API-Key": "secret"},
+        ).status_code == 422
+
+
+@pytest.mark.parametrize("error, status", [
+    (InvalidRequest("Empty update"), 400), (WritesDisabled("Disabled"), 403),
+    (RecordNotFound("Missing record"), 404), (RecordConflict("Ambiguous ID"), 409),
+])
+def test_update_agreement_reports_domain_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def update_agreement(
+            self, id_umowacpc: int, values: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            raise error
+
+    with TestClient(create_app(make_settings(), service=FailingService())) as client:
+        response = client.patch("/api/v1/agreements/51", json={"machines": [4]})
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__

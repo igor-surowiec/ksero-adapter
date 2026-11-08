@@ -855,3 +855,145 @@ def test_update_machine_is_refused_without_allow_writes(
 ) -> None:
     with pytest.raises(WritesDisabled):
         service.update_machine(1, {"model": "BLOCKED"})
+
+
+@requires_writable
+def test_agreement_machine_links_are_optional_exact_and_atomic(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER MACHINE LINKS TEST"})
+    machines = []
+    agreements = []
+    single = DatabaseService(dataclasses.replace(
+        write_service.settings,
+        database=dataclasses.replace(write_service.settings.database, pool_size=1),
+    ))
+
+    def stored(machine: dict[str, Any]) -> dict[str, Any]:
+        return write_service.fetch_rows("MASZYNA", filters=json.dumps({
+            "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+        }))["rows"][0]
+
+    try:
+        original = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        agreements.append(original)
+        for _ in range(3):
+            machines.append(write_service.create_machine({
+                "id_klient": owner["id_klient"],
+                "id_umowacpc": original["id_umowacpc"], "model": "LINK TEST",
+            }))
+        missing = 2147483647
+        assert write_service.fetch_rows(
+            "MASZYNA", filters=json.dumps({"ID_MASZYNA": missing})
+        )["total"] == 0
+        app = create_app(single.settings, service=single)
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/v1/agreements/{owner['id_klient']}", json={
+                    "machines": [m["id_maszyna"] for m in machines[:2]],
+                },
+            )
+            assert response.status_code == 201
+            linked = response.json()
+            agreements.append(linked)
+            for machine in machines[:2]:
+                assert stored(machine)["ID_UMOWACPC"] == linked["id_umowacpc"]
+            assert stored(machines[2])["ID_UMOWACPC"] == original["id_umowacpc"]
+            url = f"/api/v1/agreements/{linked['id_umowacpc']}"
+            response = client.patch(url, json={
+                "uwagi": "UPDATED", "machines": [machines[2]["id_maszyna"]],
+            })
+            assert response.status_code == 200
+            assert response.json()["uwagi"] == "UPDATED"
+            for machine in machines[:2]:
+                assert stored(machine)["ID_UMOWACPC"] is None
+            assert stored(machines[2])["ID_UMOWACPC"] == linked["id_umowacpc"]
+            assert client.patch(url, json={"typ": "TEST"}).status_code == 200
+            assert stored(machines[2])["ID_UMOWACPC"] == linked["id_umowacpc"]
+            # An empty list alone is a valid request to remove all links.
+            assert client.patch(url, json={"machines": []}).status_code == 200
+            for machine in machines:
+                row = stored(machine)
+                assert row["ID_UMOWACPC"] is None
+                assert row["ID_KLIENT"] == owner["id_klient"]
+                assert row["MODEL"] == "LINK TEST"
+            assert client.patch(url, json={
+                "machines": [machines[0]["id_maszyna"]],
+            }).status_code == 200
+            # Clearing one agreement must not touch another agreement's links.
+            assert client.patch(
+                f"/api/v1/agreements/{original['id_umowacpc']}",
+                json={"machines": []},
+            ).status_code == 200
+            assert stored(machines[0])["ID_UMOWACPC"] == linked["id_umowacpc"]
+            # A failure restores removed links as well as newly assigned ones.
+            response = client.patch(url, json={
+                "uwagi": "SHOULD ROLLBACK",
+                "machines": [machines[1]["id_maszyna"], missing],
+            })
+            assert response.status_code == 404
+            old = write_service.fetch_rows("UMOWACPC", filters=json.dumps({
+                "ID_UMOWACPC_TABLE": linked["id_umowacpc_table"],
+            }))["rows"][0]
+            assert old["UWAGI"] == "UPDATED"
+            assert stored(machines[0])["ID_UMOWACPC"] == linked["id_umowacpc"]
+            assert stored(machines[1])["ID_UMOWACPC"] is None
+            count_before = write_service.fetch_rows("UMOWACPC")["total"]
+            response = client.post(
+                f"/api/v1/agreements/{owner['id_klient']}", json={
+                    "machines": [machines[0]["id_maszyna"], missing],
+                },
+            )
+            assert response.status_code == 404
+            assert write_service.fetch_rows("UMOWACPC")["total"] == count_before
+            assert stored(machines[0])["ID_UMOWACPC"] == linked["id_umowacpc"]
+    finally:
+        single.close()
+        for machine in machines:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        for agreement in agreements:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_agreement_links_reject_duplicate_machine_business_ids(
+    write_service: DatabaseService,
+) -> None:
+    from ks_adapter.sql import build_update
+
+    owner = write_service.create_client({"nazwa": "KS ADAPTER AMBIGUOUS LINK TEST"})
+    machines = []
+    agreement = None
+    try:
+        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        for _ in range(2):
+            machines.append(write_service.create_machine({
+                "id_klient": owner["id_klient"],
+            }))
+        with write_service.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(build_update(
+                    "MASZYNA", ["ID_MASZYNA"], key="ID_MASZYNA_TABLE",
+                ), [machines[0]["id_maszyna"], machines[1]["id_maszyna_table"]])
+            finally:
+                cursor.close()
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.patch(
+                f"/api/v1/agreements/{agreement['id_umowacpc']}",
+                json={"machines": [machines[0]["id_maszyna"]]},
+            )
+            assert response.status_code == 409
+            response = client.post(
+                f"/api/v1/agreements/{owner['id_klient']}",
+                json={"machines": [machines[0]["id_maszyna"]]},
+            )
+            assert response.status_code == 409
+    finally:
+        for machine in machines:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        if agreement is not None:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])

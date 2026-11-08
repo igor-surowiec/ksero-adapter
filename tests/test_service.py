@@ -2090,3 +2090,147 @@ def test_update_machine_requires_business_identifier_column() -> None:
     with pytest.raises(InvalidRequest, match="no ID_MASZYNA key"):
         service.update_machine(4, {"marka": "KONICA"})
     assert pool.executed == []
+
+
+MACHINE_LINKABLE = TableInfo("MASZYNA", "table", None, (
+    ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+    ColumnInfo("ID_MASZYNA", 1, "INTEGER", False),
+    ColumnInfo("ID_UMOWACPC", 2, "INTEGER", True),
+))
+
+
+def test_create_agreement_links_machines_in_same_transaction() -> None:
+    pool = _Pool([
+        (None, [(51,)]), (None, [(12, 51, 7, None, "", "$_$", 0)]), (None, []),
+        (None, [(101,)]), (None, [(101,)]),
+        (None, [(102,)]), (None, [(102,)]),
+    ])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
+    result = service.create_agreement({"id_klient": 7, "machines": [4, 9, 4]})
+    assert result["id_umowacpc"] == 51
+    assert pool.executed[2:] == [
+        ('UPDATE "MASZYNA" SET "ID_UMOWACPC" = ? WHERE "ID_UMOWACPC" = ?',
+         [None, 51]),
+        ('SELECT FIRST 2 "ID_MASZYNA_TABLE" FROM "MASZYNA" '
+         'WHERE "ID_MASZYNA" = ?', [4]),
+        ('UPDATE "MASZYNA" SET "ID_UMOWACPC" = ? WHERE "ID_MASZYNA_TABLE" = ? '
+         'RETURNING "ID_MASZYNA_TABLE"', [51, 101]),
+        ('SELECT FIRST 2 "ID_MASZYNA_TABLE" FROM "MASZYNA" '
+         'WHERE "ID_MASZYNA" = ?', [9]),
+        ('UPDATE "MASZYNA" SET "ID_UMOWACPC" = ? WHERE "ID_MASZYNA_TABLE" = ? '
+         'RETURNING "ID_MASZYNA_TABLE"', [51, 102]),
+    ]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+@pytest.mark.parametrize("matches, error", [([], RecordNotFound),
+                                             ([(101,), (102,)], RecordConflict)])
+def test_create_agreement_link_failure_rolls_back(matches: Any, error: Any) -> None:
+    pool = _Pool([(None, [(51,)]),
+                  (None, [(12, 51, 7, None, "", "$_$", 0)]),
+                  (None, []), (None, matches)])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
+    with pytest.raises(error):
+        service.create_agreement({"id_klient": 7, "machines": [4]})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("machines", [None, "4", [0], [-1], [True], ["4"],
+                                      [2147483648], [1] * 1001])
+def test_agreement_service_rejects_invalid_machine_arrays(machines: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.create_agreement({"id_klient": 7, "machines": machines})
+    with pytest.raises(InvalidRequest):
+        service.update_agreement(51, {"machines": machines})
+    assert pool.executed == []
+
+
+def test_update_agreement_can_link_machines_without_changing_columns() -> None:
+    pool = _Pool([(None, [(12, 51, 7, "OLD", "", "$_$", 0)]),
+                  (None, []), (None, [(101,)]), (None, [(101,)])])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
+    result = service.update_agreement(51, {"machines": [4]})
+    assert result["umowa"] == "OLD"
+    assert pool.executed[0][1] == [51]
+    assert not any(sql.startswith('UPDATE "UMOWACPC"') for sql, _ in pool.executed)
+    assert pool.executed[-1][1] == [51, 101]
+    assert pool.committed == 1
+
+
+def test_update_agreement_updates_supplied_fields_and_links_machines() -> None:
+    pool = _Pool([(None, [(12, 51, 7, "OLD", "", "$_$", 0)]),
+                  (None, [(12, 51, 7, "NEW", None, "$_$", 0)]),
+                  (None, []), (None, [(101,)]), (None, [(101,)])])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
+    result = service.update_agreement(51, {
+        "umowa": " NEW ", "opiekun": None, "machines": [4],
+    })
+    assert result["umowa"] == "NEW"
+    assert pool.executed[1] == (
+        'UPDATE "UMOWACPC" SET "UMOWA" = ?, "OPIEKUN" = ? '
+        'WHERE "ID_UMOWACPC" = ? RETURNING "ID_UMOWACPC_TABLE", "ID_UMOWACPC", '
+        '"ID_KLIENT", "UMOWA", "OPIEKUN", "PLATNOSC", "TERMIN"',
+        ["NEW", None, 51],
+    )
+    assert pool.committed == 1
+
+
+@pytest.mark.parametrize("payload", [{}, {"id_umowacpc": 2},
+                                     {"id_klient": None}, {"koszty": 1}])
+def test_update_agreement_rejects_invalid_fields(payload: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_agreement(51, payload)
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("rows, error", [([], RecordNotFound),
+    ([(12, 51, 7, "", "", "$_$", 0)] * 2, RecordConflict)])
+def test_update_agreement_rejects_missing_or_ambiguous_record(
+    rows: Any, error: Any,
+) -> None:
+    pool = _Pool([(None, rows)])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    with pytest.raises(error):
+        service.update_agreement(51, {"umowa": "NEW"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_update_agreement_refuses_disabled_writes() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE)
+    with pytest.raises(WritesDisabled):
+        service.update_agreement(51, {"umowa": "NEW"})
+    assert pool.executed == []
+
+
+def test_update_agreement_empty_machine_array_clears_all_links() -> None:
+    pool = _Pool([(None, [(12, 51, 7, "OLD", "", "$_$", 0)]), (None, [])])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
+    result = service.update_agreement(51, {"machines": []})
+    assert result["umowa"] == "OLD"
+    assert pool.executed[1:] == [(
+        'UPDATE "MASZYNA" SET "ID_UMOWACPC" = ? WHERE "ID_UMOWACPC" = ?',
+        [None, 51],
+    )]
+    assert pool.committed == 1
+
+
+def test_update_agreement_omitted_machine_array_preserves_links() -> None:
+    row = (12, 51, 7, "NEW", "", "$_$", 0)
+    pool = _Pool([(None, [row]), (None, [row])])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service.update_agreement(51, {"umowa": "NEW"})
+    assert not any('"MASZYNA"' in sql for sql, _ in pool.executed)
+    assert pool.committed == 1

@@ -218,6 +218,15 @@ class FakeService:
         self.calls.append({"action": "create_agreement", "values": dict(values)})
         return to_jsonable({"id_umowacpc_table": 3001, "id_umowacpc": 1, **values})
 
+    def update_agreement(
+        self, id_umowacpc: int, values: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        self.calls.append({
+            "action": "update_agreement", "id_umowacpc": id_umowacpc,
+            "values": dict(values),
+        })
+        return to_jsonable({"id_umowacpc": id_umowacpc, **values})
+
     def fetch_machines(
         self,
         *,

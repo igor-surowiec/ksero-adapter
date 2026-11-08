@@ -13,6 +13,7 @@ from .schemas import (
     Agreement,
     AgreementCreate,
     AgreementPage,
+    AgreementUpdate,
     Client,
     ClientCreate,
     ClientPage,
@@ -313,6 +314,9 @@ def create_router(settings: AppSettings) -> APIRouter:
             "Both identifiers are read-only. Optional fields "
             "use legacy defaults, including aktywna=TAK and u_start set to the "
             "database current date; supplied values override them. "
+            "An optional machines array links those ID_MASZYNA records to "
+            "the new agreement in the same transaction. Missing or ambiguous "
+            "machine IDs roll back everything. Omitted preserves links; empty clears. "
             "Returns the same projection as GET /agreements. Generated table "
             "keys and financial totals cannot be supplied. Requires "
             "api.allow_writes and the configured X-API-Key."
@@ -324,8 +328,36 @@ def create_router(settings: AppSettings) -> APIRouter:
         payload: AgreementCreate | None = None,
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
-        values = payload.model_dump(exclude_none=True) if payload else {}
+        values = (
+            payload.model_dump(exclude_unset=True, exclude_none=True) if payload else {}
+        )
         return service.create_agreement({"id_klient": id_klient, **values})
+
+    @router.patch(
+        "/agreements/{id_umowacpc}",
+        response_model=Agreement,
+        tags=["data"],
+        summary="Update a service agreement and optionally link machines",
+        description=(
+            "Updates only supplied agreement fields, identified by ID_UMOWACPC. "
+            "The optional machines array contains ID_MASZYNA values to link. "
+            "Omitted arrays preserve links. Supplied arrays replace the complete "
+            "list: empty clears all links, removed machines are unassigned. "
+            "Existing links on listed machines are reassigned. "
+            "Agreement updates and links commit together; missing records "
+            "return 404 and ambiguous IDs 409 with rollback. Requires "
+            "api.allow_writes and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def update_agreement(
+        payload: AgreementUpdate,
+        id_umowacpc: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.update_agreement(
+            id_umowacpc, payload.model_dump(exclude_unset=True)
+        )
 
     @router.get(
         "/machines",

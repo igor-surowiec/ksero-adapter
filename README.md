@@ -4,7 +4,7 @@ HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.
 `WIN1250` data).
 
 Requests use quoted identifiers, bound parameters and capped read results. Reads never modify anything; the only writes
-are curated client/machine/agreement inserts and client/machine updates and client deletions, off
+are curated client/machine/agreement inserts and client/machine/agreement updates and client deletions, off
 unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
 the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -34,7 +34,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /agreements/{id_umowacpc}`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -59,6 +59,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `DELETE` | `/clients/{id_klient}` | delete a contractor and trigger-managed machines/contacts (`204`) |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `POST` | `/agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
+| `PATCH` | `/agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
@@ -160,6 +161,47 @@ and company are left to the caller; reference-specific values are not copied. Th
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
+```
+
+Agreement requests accept an optional `machines` array of positive
+`ID_MASZYNA` values. On creation, each listed machine gets the generated
+agreement ID in `MASZYNA.ID_UMOWACPC`. On update, it gets the agreement ID from
+the URL. Existing agreement links on listed machines are reassigned; machine
+ownership (`ID_KLIENT`) stays unchanged. Omitting `machines` preserves current
+links. A supplied array is the complete desired list: machines previously
+linked to this agreement but absent from it have `ID_UMOWACPC` cleared to NULL.
+Sending `[]` clears all of this agreement's links. Other agreements' machine
+links are untouched. Repeated list entries are processed once.
+Arrays accept up to 1000 integer IDs; null, strings, booleans and nonpositive
+values are rejected with `422`.
+
+`PATCH /agreements/{id_umowacpc}` updates supplied agreement fields only and
+returns the stored agreement with `200`. Its URL identifies an agreement;
+the POST URL identifies a client. The optional array can accompany agreement
+details or be the only field. Omitted fields retain their values; null clears
+nullable columns. Creation defaults are never reapplied. An empty object `{}` returns `400`; `{"machines": []}` is a valid request to
+clear all links. Generated agreement IDs and
+calculated totals remain read-only. `id_klient` may be supplied as a positive
+integer to change the agreement's client.
+
+Agreement changes and all listed machine links commit in one transaction.
+A missing agreement or machine returns `404`; duplicate business IDs matching
+multiple records return `409`. Any such failure rolls back the agreement and
+all links, including machines already processed in that request. Both routes
+require writes enabled and the configured API key.
+
+```http
+POST /api/v1/agreements/42
+Content-Type: application/json
+
+{"umowa": "CPC/2026/001", "machines": [4, 7, 12]}
+```
+
+```http
+PATCH /api/v1/agreements/3
+Content-Type: application/json
+
+{"uwagi": "Updated agreement", "machines": [15, 18]}
 ```
 
 `POST /machines` takes the lower-cased column names of the `GET /machines`
