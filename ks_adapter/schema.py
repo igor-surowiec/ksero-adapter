@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from .errors import DatabaseUnavailable, TableNotFound
 from .pool import ConnectionPool
@@ -32,7 +32,6 @@ _FIELD_TYPES: dict[int, str] = {
 }
 
 _INTEGER_PRECISION = {7: 5, 8: 10, 16: 19}
-_INTEGER_TYPES = {7, 8, 16}
 _CHARSET_WIDTH = {"UTF8": 4, "UNICODE_FSS": 3, "ISO8859_1": 1, "WIN1250": 1}
 
 _TABLES_SQL = """
@@ -80,15 +79,13 @@ class ColumnInfo:
     precision: int | None = None
     scale: int | None = None
 
-    def to_dict(self, describe_type: bool = False) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
             "name": self.name,
             "position": self.position,
             "type": self.type_name,
             "nullable": self.nullable,
         }
-        if describe_type:
-            data["sql_type"] = self.type_name
         if self.default:
             data["default"] = self.default
         if self.charset:
@@ -110,10 +107,6 @@ class TableInfo:
     kind: str
     description: str | None
     columns: tuple[ColumnInfo, ...]
-
-    @property
-    def column_names(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self.columns)
 
     @property
     def column_map(self) -> dict[str, str]:
@@ -188,14 +181,6 @@ class SchemaCache:
         self._tables: dict[str, TableInfo] | None = None
         self._loaded_at = 0.0
 
-    @property
-    def ttl(self) -> float:
-        return self._ttl
-
-    @property
-    def loaded(self) -> bool:
-        return self._tables is not None
-
     def invalidate(self) -> None:
         with self._lock:
             self._tables = None
@@ -214,9 +199,6 @@ class SchemaCache:
             self._tables = tables
             self._loaded_at = time.monotonic()
             return tables
-
-    def names(self) -> list[str]:
-        return sorted(self.tables().keys(), key=str.upper)
 
     def get(self, name: str) -> TableInfo:
         tables = self.tables()

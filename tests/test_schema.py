@@ -127,7 +127,6 @@ def test_schema_cache_loads_tables_and_columns() -> None:
 
     tables = cache.tables()
     assert list(tables) == ["APPUSER", "V_USERS"]
-    assert cache.names() == ["APPUSER", "V_USERS"]
 
     appuser = cache.get("APPUSER")
     assert appuser.kind == "table"

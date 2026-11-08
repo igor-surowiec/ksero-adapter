@@ -50,10 +50,6 @@ class ConnectionPool:
         self._closed = False
 
     @property
-    def settings(self) -> DatabaseSettings:
-        return self._settings
-
-    @property
     def stats(self) -> dict[str, int]:
         return {
             "created": self._created,

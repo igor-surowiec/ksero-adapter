@@ -8,7 +8,6 @@ that write are :meth:`DatabaseService.create_client` and
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any, Mapping, Sequence
 
@@ -22,7 +21,7 @@ from .errors import (
 )
 from .pool import ConnectionPool
 from .schema import SchemaCache, TableInfo
-from .serialization import serialize_rows, to_jsonable
+from .serialization import row_to_dict, serialize_rows
 from .sql import (
     build_insert,
     build_search,
@@ -32,8 +31,6 @@ from .sql import (
     parse_filters,
     quote_identifier,
 )
-
-logger = logging.getLogger(__name__)
 
 #: Table holding contractors/clients in the BAZAMS schema.
 CLIENTS_TABLE = "KLIENT"
@@ -558,7 +555,7 @@ def _insert_plan(
     """Merge a prepared write payload with the legacy default profile.
 
     The caller's columns come first, in the order
-    :meth:`DatabaseService._prepared_insert_values` produced them, followed by
+    :meth:`DatabaseService._prepared_write_values` produced them, followed by
     the default columns the payload did not touch.  Columns the connected
     database does not have are dropped, so a snapshot of an older catalog still
     produces a valid statement.  Returns the column names and the matching
@@ -866,17 +863,7 @@ class DatabaseService:
                 cursor.close()
 
         keys = [column.lower() for column in selected]
-        rows = [
-            {
-                key: to_jsonable(
-                    value,
-                    decimal_as_string=self.settings.api.decimal_as_string,
-                    blob_encoding=self.settings.api.blob_encoding,
-                )
-                for key, value in zip(keys, raw_row)
-            }
-            for raw_row in raw_rows
-        ]
+        rows = [self._serialize_row(keys, row) for row in raw_rows]
         return {
             "total": total,
             "count": len(rows),
@@ -951,11 +938,8 @@ class DatabaseService:
 
         Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
         """
-        if not self.settings.api.allow_writes:
-            raise WritesDisabled(
-                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
-            )
-        prepared = self._prepared_insert_values(
+        self._require_writes()
+        prepared = self._prepared_write_values(
             values, CLIENT_WRITE_COLUMNS, CLIENT_TEXT_LENGTHS
         )
         if "NAZWA" not in prepared:
@@ -974,15 +958,7 @@ class DatabaseService:
         ]
         statement = build_insert(info.name, columns, returning=selected)
 
-        with self.pool.write_session() as connection:
-            cursor = connection.cursor()
-            try:
-                cursor.execute(statement, params)
-                raw_row = cursor.fetchone()
-            finally:
-                cursor.close()
-
-        return self._returned_row(info.name, selected, raw_row)
+        return self._write_row(info.name, selected, statement, params)
 
     def update_client(
         self, id_klient: int, values: Mapping[str, Any]
@@ -992,17 +968,14 @@ class DatabaseService:
         Existing legacy defaults, generated keys and omitted fields are preserved.
         Null and blank optional values explicitly clear the stored field.
         """
-        if not self.settings.api.allow_writes:
-            raise WritesDisabled(
-                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
-            )
+        self._require_writes()
         if (
             not isinstance(id_klient, int)
             or isinstance(id_klient, bool)
             or id_klient < 1
         ):
             raise InvalidRequest("'id_klient' must be a positive integer")
-        prepared = self._prepared_insert_values(
+        prepared = self._prepared_write_values(
             values, CLIENT_WRITE_COLUMNS, CLIENT_TEXT_LENGTHS,
             preserve_empty=True,
         )
@@ -1023,20 +996,10 @@ class DatabaseService:
             key=info.column_map["ID_KLIENT"],
             returning=[info.column_map[c] for c in selected],
         )
-        with self.pool.write_session() as connection:
-            cursor = connection.cursor()
-            try:
-                cursor.execute(statement, [*prepared.values(), id_klient])
-                raw_row = cursor.fetchone()
-                # Firebird 2.5 returns a NULL-filled RETURNING row for no match.
-                if raw_row is None or raw_row[selected.index("ID_KLIENT")] is None:
-                    raise RecordNotFound(
-                        f"Client with id_klient {id_klient} not found"
-                    )
-                result = self._returned_row(info.name, selected, raw_row)
-            finally:
-                cursor.close()
-        return result
+        return self._write_row(
+            info.name, selected, statement, [*prepared.values(), id_klient],
+            not_found=RecordNotFound(f"Client with id_klient {id_klient} not found"),
+        )
 
     def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Insert a machine into ``MASZYNA`` and return the stored row.
@@ -1054,11 +1017,8 @@ class DatabaseService:
 
         Raises :class:`errors.WritesDisabled` when ``api.allow_writes`` is off.
         """
-        if not self.settings.api.allow_writes:
-            raise WritesDisabled(
-                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
-            )
-        prepared = self._prepared_insert_values(
+        self._require_writes()
+        prepared = self._prepared_write_values(
             values, MACHINE_WRITE_COLUMNS, MACHINE_TEXT_LENGTHS
         )
         owner = prepared.get("ID_KLIENT")
@@ -1080,36 +1040,56 @@ class DatabaseService:
         ]
         statement = build_insert(info.name, columns, returning=selected)
 
+        return self._write_row(
+            info.name, selected, statement, [prepared[column] for column in columns]
+        )
+
+    # -- helpers ----------------------------------------------------------
+    def _require_writes(self) -> None:
+        if not self.settings.api.allow_writes:
+            raise WritesDisabled(
+                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
+            )
+
+    def _write_row(
+        self,
+        table: str,
+        selected: Sequence[str],
+        statement: str,
+        params: Sequence[Any],
+        *,
+        not_found: RecordNotFound | None = None,
+    ) -> dict[str, Any]:
+        """Execute a curated write and serialise RETURNING before committing."""
         with self.pool.write_session() as connection:
             cursor = connection.cursor()
             try:
-                cursor.execute(statement, [prepared[column] for column in columns])
+                cursor.execute(statement, params)
                 raw_row = cursor.fetchone()
+                # Firebird 2.5 returns a NULL-filled RETURNING row for no match.
+                if not_found is not None and (
+                    raw_row is None or all(value is None for value in raw_row)
+                ):
+                    raise not_found
+                if raw_row is None:
+                    raise DatabaseUnavailable(
+                        f"Firebird did not return the row written to '{table}'"
+                    )
+                return self._serialize_row([c.lower() for c in selected], raw_row)
             finally:
                 cursor.close()
 
-        return self._returned_row(info.name, selected, raw_row)
-
-    # -- helpers ----------------------------------------------------------
-    def _returned_row(
-        self, table: str, selected: Sequence[str], raw_row: Any
+    def _serialize_row(
+        self, names: Sequence[str], row: Sequence[Any]
     ) -> dict[str, Any]:
-        """Map the ``RETURNING`` tuple of an insert to the response dict."""
-        if raw_row is None:  # pragma: no cover - RETURNING always yields a row
-            raise DatabaseUnavailable(
-                f"Firebird did not return the row inserted into '{table}'"
-            )
-        return {
-            column.lower(): to_jsonable(
-                cell,
-                decimal_as_string=self.settings.api.decimal_as_string,
-                blob_encoding=self.settings.api.blob_encoding,
-            )
-            for column, cell in zip(selected, raw_row)
-        }
+        return row_to_dict(
+            row, names,
+            decimal_as_string=self.settings.api.decimal_as_string,
+            blob_encoding=self.settings.api.blob_encoding,
+        )
 
     @staticmethod
-    def _prepared_insert_values(
+    def _prepared_write_values(
         values: Mapping[str, Any],
         allowed: Sequence[str],
         lengths: Mapping[str, int],

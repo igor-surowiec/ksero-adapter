@@ -74,6 +74,15 @@ def create_router(settings: AppSettings) -> APIRouter:
     protected = [Depends(require_api_key(settings))]
     router = APIRouter(prefix=api.prefix)
 
+    def page_limit(label: str) -> Any:
+        return Query(
+            default=None, ge=1, le=api.max_limit,
+            description=(
+                f"{label} per page (default {api.default_limit}, "
+                f"max {api.max_limit})"
+            ),
+        )
+
     @router.get(
         "/",
         response_model=ServiceInfo,
@@ -148,12 +157,7 @@ def create_router(settings: AppSettings) -> APIRouter:
     )
     def read_rows(
         table: str,
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=f"Rows per page (default {api.default_limit}, max {api.max_limit})",
-        ),
+        limit: int | None = page_limit("Rows"),
         offset: int = Query(default=0, ge=0, description="Number of rows to skip"),
         order_by: str | None = Query(
             default=None,
@@ -181,12 +185,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         dependencies=protected,
     )
     def list_clients(
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=f"Clients per page (default {api.default_limit}, max {api.max_limit})",
-        ),
+        limit: int | None = page_limit("Clients"),
         offset: int = Query(default=0, ge=0, description="Number of clients to skip"),
         search: str | None = Query(
             default=None,
@@ -264,15 +263,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         dependencies=protected,
     )
     def list_agreements(
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=(
-                f"Agreements per page (default {api.default_limit}, "
-                f"max {api.max_limit})"
-            ),
-        ),
+        limit: int | None = page_limit("Agreements"),
         offset: int = Query(default=0, ge=0, description="Number of agreements to skip"),
         search: str | None = Query(
             default=None,
@@ -298,15 +289,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         dependencies=protected,
     )
     def list_machines(
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=(
-                f"Machines per page (default {api.default_limit}, "
-                f"max {api.max_limit})"
-            ),
-        ),
+        limit: int | None = page_limit("Machines"),
         offset: int = Query(default=0, ge=0, description="Number of machines to skip"),
         search: str | None = Query(
             default=None,
@@ -362,15 +345,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         dependencies=protected,
     )
     def list_orders(
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=(
-                f"Orders per page (default {api.default_limit}, "
-                f"max {api.max_limit})"
-            ),
-        ),
+        limit: int | None = page_limit("Orders"),
         offset: int = Query(default=0, ge=0, description="Number of orders to skip"),
         search: str | None = Query(
             default=None,
@@ -401,15 +376,7 @@ def create_router(settings: AppSettings) -> APIRouter:
         dependencies=protected,
     )
     def list_invoices(
-        limit: int | None = Query(
-            default=None,
-            ge=1,
-            le=api.max_limit,
-            description=(
-                f"Invoices per page (default {api.default_limit}, "
-                f"max {api.max_limit})"
-            ),
-        ),
+        limit: int | None = page_limit("Invoices"),
         offset: int = Query(default=0, ge=0, description="Number of invoices to skip"),
         search: str | None = Query(
             default=None,

@@ -185,7 +185,7 @@ config errors work without the Firebird client. `ConfigError` → exit `2`, fail
 **`app.py`** — application factory. `create_app(settings=None, service=None)`,
 `DESCRIPTION` (text rendered in `/docs`), `_adapter_error_handler`,
 `_firebird_error_handler`. Owns the `lifespan` (closes the service it created),
-registers the router, adds CORS only when origins are configured, and serves the
+registers the router, enables GET/POST/PATCH CORS for configured origins, and serves the
 unauthenticated `GET /` liveness route.
 
 **`api.py`** — the whole HTTP surface, built as a factory. `create_router(settings)`,
@@ -193,6 +193,7 @@ unauthenticated `GET /` liveness route.
 `hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
+`PATCH /clients/{id_klient}`,
 `GET /agreements`, `GET /machines`, `POST /machines`, `GET /orders`,
 `GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
 first two is protected by the shared `protected` dependency list. Parameter bounds
@@ -202,7 +203,7 @@ are generated from the settings; handlers return plain dicts and the declared
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
 `yaml.safe_load` → `_expand_env` → `_apply_env_overrides` → `_build_settings` (per-section
-whitelist → frozen dataclasses → `__post_init__` validation) → `resolve_database_path()`.
+dataclass-derived whitelist → frozen dataclasses → `__post_init__` validation) → `resolve_database_path()`.
 Public objects: `ConfigError`, `AppSettings`, `DatabaseSettings` (with the `dsn`
 property), `ServerSettings`, `ApiSettings`, `PROJECT_ROOT`, `DEFAULT_CONFIG_PATH`.
 A relative `database.path` is resolved against `PROJECT_ROOT`, so the adapter works from
@@ -225,7 +226,7 @@ never a hang); broken connections are discarded, so the pool survives a restart.
 **`schema.py`** — catalog introspection + TTL cache. Reads `RDB$RELATIONS` and
 `RDB$RELATION_FIELDS`/`RDB$FIELDS`/`RDB$CHARACTER_SETS`, maps `RDB$FIELD_TYPE` ids to SQL
 types (`describe_type()` → `VARCHAR(50)`, `NUMERIC(15,2)`, `BLOB SUB_TYPE TEXT`) and
-produces frozen `ColumnInfo` / `TableInfo`. `SchemaCache` offers `tables()`, `names()`,
+produces frozen `ColumnInfo` / `TableInfo`. `SchemaCache` offers `tables()`,
 `get(name)` (case-insensitive, else `TableNotFound`), `invalidate()` and the
 `api.schema_cache_ttl` expiry. `TableInfo.column_map` is the whitelist that every filter,
 search and sort column must pass.
@@ -255,7 +256,8 @@ pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
 `create_client()`, `create_machine()`, `update_client()`, `run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
-`_check_parameters()`, `_returned_row()` and `_prepared_insert_values()`, and the
+`_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
+and `_prepared_write_values()`, plus the
 module-level `_insert_plan()` that merges a payload with the legacy default profile.
 constants define the curated read models:
 `CLIENTS_TABLE`/`CLIENT_COLUMNS` + `CLIENT_SEARCH_COLUMNS`,
@@ -273,7 +275,7 @@ The insert methods `create_client()` and `create_machine()` both refuse with
 `WritesDisabled` unless `api.allow_writes` is set, build their statement with
 `sql.build_insert()` and execute it inside `pool.write_session()`, so the row is
 committed or the transaction rolled back. Both take a mapping keyed by the lower-cased
-column names and normalise it with `_prepared_insert_values()`: only the constants'
+column names and normalise it with `_prepared_write_values()`: only the constants'
 columns are accepted (`CLIENT_WRITE_COLUMNS` / `MACHINE_WRITE_COLUMNS`, both subsets of
 the matching `*_COLUMNS` projection), strings are trimmed, blanks are dropped and each
 text value is limited with `CLIENT_TEXT_LENGTHS` / `MACHINE_TEXT_LENGTHS` (mirroring the
@@ -281,7 +283,10 @@ column widths). `create_client()` then requires a non-blank `NAZWA`, merges the 
 with `CLIENT_INSERT_DEFAULTS` through `_insert_plan()` and inserts the result with
 `RETURNING` built from `CLIENT_COLUMNS`; `create_machine()` requires a positive
 `ID_KLIENT` and returns `RETURNING` built from `MACHINE_COLUMNS`.
-`_returned_row()` maps such a tuple to the JSON dict both methods answer with.
+`_write_row()` executes each curated write and converts its returned row with
+`_serialize_row()` before committing. Missing update targets and conversion
+failures therefore roll back the transaction. `_serialize_row()` also handles
+curated reads through the shared `serialization.row_to_dict()` helper.
 
 `CLIENT_INSERT_DEFAULTS` deserves its own paragraph: it holds the column values the
 legacy application itself writes into a new `KLIENT` row (`ID_FIRMA` `0`, `TYP`
@@ -300,7 +305,7 @@ columns, unknown fields rejected),
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `MachineCreate` (the
 `POST /machines` body: `id_klient` plus the optional machine columns, unknown fields
 rejected), `Order`/`OrderPage`,
-`Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`, `ErrorResponse`. Projection
+`Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`. Projection
 fields are all optional, so a missing column never breaks validation, and money columns
 use `DecimalValue = float | str`. Every projection field is named after its column,
 lower-cased (`nazwa`, `id_klient`, `suma_brutto`, ...), which is also the JSON key the
@@ -360,13 +365,13 @@ another database needs no code change.
    `dependencies=protected`, then a row in the `README.md` endpoint table.
    A **writing** endpoint is the exception: it must be gated by `api.allow_writes`
    (raise `errors.WritesDisabled` → `403`), build its statement with
-   `sql.build_insert()`, run it inside `pool.write_session()` only, and be covered by a
+   `sql.build_insert()` / `sql.build_update()`, execute via `_write_row()`, and have a
    `KS_TEST_DB_WRITABLE=1` integration test that cleans up after itself.
 2. **New field on a projection** — add the column name to the matching `*_COLUMNS`
    constant (plus `*_SEARCH_COLUMNS` if it must be searchable) and the optional field to
    the Pydantic model, named after the column in lower case; response details live in the
    OpenAPI schema, so `README.md` only changes when the endpoint description does.
-3. **New setting** — `config.py` (`_ALLOWED_KEYS`, `_ENV_OVERRIDES`, dataclass field,
+3. **New setting** — `config.py` (`_ENV_OVERRIDES`, dataclass field,
    `_build_settings`), `config/config.yaml`, plus the `README.md` environment table when the
    variable should be public.
 4. Verify with `python -m ks_adapter --check` and `python -m pytest`.

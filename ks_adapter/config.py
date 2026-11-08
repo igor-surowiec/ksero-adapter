@@ -15,7 +15,7 @@ from __future__ import annotations
 import codecs
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -196,33 +196,14 @@ _ENV_OVERRIDES: dict[str, dict[str, str]] = {
     },
 }
 
+# The settings dataclasses define the accepted keys; parsing stays explicit below.
 _ALLOWED_KEYS = {
-    "database": {
-        "path",
-        "user",
-        "password",
-        "charset",
-        "host",
-        "port",
-        "client_library",
-        "pool_size",
-        "acquire_timeout",
-        "health_check",
-        "check_path",
-    },
-    "server": {"host", "port", "log_level", "reload"},
-    "api": {
-        "prefix",
-        "default_limit",
-        "max_limit",
-        "max_query_rows",
-        "schema_cache_ttl",
-        "blob_encoding",
-        "decimal_as_string",
-        "api_key",
-        "allow_writes",
-        "cors_origins",
-    },
+    name: {item.name for item in fields(model)}
+    for name, model in (
+        ("database", DatabaseSettings),
+        ("server", ServerSettings),
+        ("api", ApiSettings),
+    )
 }
 
 

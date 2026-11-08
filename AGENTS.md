@@ -33,9 +33,10 @@ get wrong.
    statement make the server answer `-204 Implementation limit exceeded`. That
    is why the curated endpoints use hand-picked `*_COLUMNS` /
    `*_SEARCH_COLUMNS` instead of `SELECT *` on wide tables.
-5. **Settings are whitelisted.** A new key needs `config._ALLOWED_KEYS`, a
-   dataclass field, parsing in `_build_settings` (plus `_ENV_OVERRIDES` if it
-   should be overridable) and `config/config.yaml`. Unknown keys are an error.
+5. **Settings are whitelisted.** `_ALLOWED_KEYS` comes from the settings
+   dataclasses. A new key needs a dataclass field and parsing in
+   `_build_settings` (plus `_ENV_OVERRIDES` for environment overrides) and
+   `config/config.yaml`. Unknown keys are an error.
 6. **Never commit the database or credentials.** `*.fdb` is git-ignored and
    holds customer data: do not copy rows into tests, docs, logs or fixtures.
 
@@ -109,7 +110,7 @@ marker.
 
 ### Add a setting
 
-`config.py` (`_ALLOWED_KEYS`, dataclass field, `_build_settings`,
+`config.py` (dataclass field, `_build_settings`,
 `_ENV_OVERRIDES`), then `config/config.yaml`, then the README env table when
 the variable is public.
 
@@ -119,10 +120,11 @@ the variable is public.
    off - never write while the switch is off.
 2. Declare the writable subset as a `*_WRITE_COLUMNS` constant and the text
    widths as `*_TEXT_LENGTHS`, then normalise the payload with
-   `DatabaseService._prepared_insert_values()` (key matching, trimming, blank
+   `DatabaseService._prepared_write_values()` (key matching, trimming, blank
    and unknown-field rejection) instead of validating by hand.
 3. For inserts, reproduce the row profile the legacy program writes: collect
-   every column value that program puts into new rows (see `CLIENT_INSERT_DEFAULTS`) in a
+   every column value that program puts into new rows (see
+   `CLIENT_INSERT_DEFAULTS`) in a
    `*_INSERT_DEFAULTS` constant and merge it with `_insert_plan()`. A write that
    leaves the Firebird `NULL`s behind produces a row the program does not show,
    even though SQL accepts it.

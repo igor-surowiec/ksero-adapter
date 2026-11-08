@@ -33,10 +33,7 @@ def to_jsonable(
             return str(value) if decimal_as_string else None
         return str(value) if decimal_as_string else float(value)
 
-    if isinstance(value, dt.datetime):
-        return value.isoformat()
-
-    if isinstance(value, (dt.date, dt.time)):
+    if isinstance(value, (dt.datetime, dt.date, dt.time)):
         return value.isoformat()
 
     if isinstance(value, dt.timedelta):

@@ -766,3 +766,20 @@ def test_update_client_reports_domain_errors(error: Exception, status: int) -> N
         response = client.patch("/api/v1/clients/1", json={"nip": "123"})
     assert response.status_code == status
     assert response.json()["error"] == type(error).__name__
+
+
+def test_cors_allows_client_patch() -> None:
+    origin = "https://example.com"
+    app = create_app(make_settings(cors_origins=(origin,)), service=FakeService())
+    with TestClient(app) as client:
+        response = client.options(
+            "/api/v1/clients/42",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "PATCH",
+                "Access-Control-Request-Headers": "Content-Type, X-API-Key",
+            },
+        )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origin
+    assert "PATCH" in response.headers["access-control-allow-methods"]

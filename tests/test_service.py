@@ -1715,3 +1715,19 @@ def test_update_client_rolls_back_database_failure() -> None:
         service.update_client(4, {"nazwa": "ACME"})
     assert pool.committed == 0
     assert pool.rolled_back == 1
+
+
+def test_create_client_rolls_back_when_serialization_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool = _Pool([(KLIENT_RETURNING, [(5, 4, "ACME")])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+
+    def fail(names: Any, row: Any) -> dict[str, Any]:
+        raise ValueError("Cannot serialize returned row")
+
+    monkeypatch.setattr(service, "_serialize_row", fail)
+    with pytest.raises(ValueError, match="Cannot serialize"):
+        service.create_client({"nazwa": "ACME"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1

@@ -681,8 +681,3 @@ class ServiceInfo(BaseModel):
     version: str
     api_prefix: str
     docs_url: str
-
-
-class ErrorResponse(BaseModel):
-    detail: str
-    error: str = Field(description="Exception class name")
