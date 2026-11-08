@@ -23,7 +23,7 @@ DESCRIPTION = """
 HTTP access to a Firebird database.
 
 * **Clients** - list, create, update and delete contractors (opt-in writes).
-* **Machines** - create a machine, optionally assigned to a contractor.
+* **Machines** - list, create, update and delete machines (opt-in writes).
 * **Agreements** - create/update service agreements and machine links.
 * **CPC** - list settlements; create/update/delete with opt-in writes.
 * **Orders and invoices** - paginated read-only access.
@@ -32,6 +32,7 @@ Identifiers are quoted and values are always bound parameters. Read requests can
 never modify the database; writing routes are `POST /clients`,
 `POST /machines/{id_klient}`, `POST /cpc-agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
+`DELETE /machines/{id_maszyna}`,
 `PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}` and
 `DELETE /clients/{id_klient}` and CPC POST/PATCH/DELETE, all rejected with `403`
 unless `api.allow_writes` is enabled.

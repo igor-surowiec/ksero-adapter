@@ -242,6 +242,15 @@ isolated parents and verify totals across insertion, update and deletion.
 
 ### 1.4 Errors and shutdown
 
+`DELETE /machines/{id_maszyna}` calls `delete_machine()`. The write gate runs
+before catalog access. A reserved `MASZYNA` write transaction checks that the
+business ID matches exactly one row, then uses `sql.build_delete()` with a
+bound ID and `RETURNING`. Missing rows return `404`; duplicate business IDs
+return `409`; failures roll back. `DEL_MASZYNA_DELETE` deletes linked service
+orders and applies the database's synchronization behavior in that same
+transaction. The route returns an empty `204` and requires the API key when
+configured. The tester discovers it from OpenAPI.
+
 `DELETE /cpc-agreements/{id_umowacpc}` calls `delete_agreement()`, gated by
 `_require_writes()`. A reserved write transaction checks that the business ID
 matches exactly one agreement, checks catalog-discovered table references

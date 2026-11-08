@@ -2587,3 +2587,61 @@ def test_create_machine_service_requires_manufacturer(fields: Any) -> None:
     with pytest.raises(InvalidRequest, match="marka"):
         service.create_machine({"id_klient": 7, **fields})
     assert pool.executed == []
+
+
+
+def test_delete_machine_uses_business_key_and_commits() -> None:
+    pool = _Pool([(None, [(4,)]), (None, [(4,)])])
+    service = make_projection_service(pool, MASZYNA, allow_writes=True)
+    assert service.delete_machine(4) is None
+    assert pool.executed == [
+        ('SELECT FIRST 2 "ID_MASZYNA" FROM "MASZYNA" '
+         'WHERE "ID_MASZYNA" = ?', [4]),
+        ('DELETE FROM "MASZYNA" WHERE "ID_MASZYNA" = ? '
+         'RETURNING "ID_MASZYNA"', [4]),
+    ]
+    assert pool.reserved_tables == ["MASZYNA"]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+@pytest.mark.parametrize("matches, error", [
+    ([], RecordNotFound), ([(4,), (4,)], RecordConflict),
+])
+def test_delete_machine_missing_or_ambiguous_rolls_back(
+    matches: Any, error: Any,
+) -> None:
+    pool = _Pool([(None, matches)])
+    service = make_projection_service(pool, MASZYNA, allow_writes=True)
+    with pytest.raises(error):
+        service.delete_machine(4)
+    assert len(pool.executed) == 1
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("returned", [[], [(None,)]])
+def test_delete_machine_missing_returning_rolls_back(returned: Any) -> None:
+    pool = _Pool([(None, [(4,)]), (None, returned)])
+    service = make_projection_service(pool, MASZYNA, allow_writes=True)
+    with pytest.raises(RecordNotFound):
+        service.delete_machine(4)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("key", [0, -1, True, None, "4"])
+def test_delete_machine_validates_id_before_sql(key: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.delete_machine(key)
+    assert pool.executed == []
+
+
+def test_delete_machine_refuses_disabled_writes() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA)
+    with pytest.raises(WritesDisabled):
+        service.delete_machine(4)
+    assert pool.executed == []

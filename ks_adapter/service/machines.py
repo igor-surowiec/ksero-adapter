@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from ..errors import (
     ColumnNotFound, DatabaseUnavailable, InvalidRequest, RecordConflict, RecordNotFound,
 )
-from ..sql import build_insert, build_update, quote_identifier
+from ..sql import build_delete, build_insert, build_update, quote_identifier
 from .base import BaseDatabaseService, _insert_plan
 from .clients import CLIENTS_TABLE
 
@@ -260,6 +260,45 @@ class MachinesService(BaseDatabaseService):
                 if row is None:
                     raise DatabaseUnavailable("Firebird did not return the machine")
                 return self._serialize_row([c.lower() for c in selected], row)
+            finally:
+                cursor.close()
+
+    def delete_machine(self, id_maszyna: int) -> None:
+        """Delete by business ID; the database trigger also deletes service orders."""
+        self._require_writes()
+        if (
+            not isinstance(id_maszyna, int)
+            or isinstance(id_maszyna, bool)
+            or id_maszyna < 1
+        ):
+            raise InvalidRequest("'id_maszyna' must be a positive integer")
+        info = self.schema.get(MACHINES_TABLE)
+        key = info.column_map.get("ID_MASZYNA")
+        if key is None:
+            raise InvalidRequest("Machine table has no ID_MASZYNA key")
+        with self.pool.write_session(reserve_table=info.name) as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    f"SELECT FIRST 2 {quote_identifier(key)} "
+                    f"FROM {quote_identifier(info.name)} "
+                    f"WHERE {quote_identifier(key)} = ?", [id_maszyna],
+                )
+                rows = cursor.fetchall()
+                if not rows:
+                    raise RecordNotFound(
+                        f"Machine with id_maszyna {id_maszyna} not found"
+                    )
+                if len(rows) > 1:
+                    raise RecordConflict(
+                        f"Multiple machines have id_maszyna {id_maszyna}"
+                    )
+                cursor.execute(build_delete(info.name, key=key), [id_maszyna])
+                row = cursor.fetchone()
+                if row is None or row[0] is None:
+                    raise RecordNotFound(
+                        f"Machine with id_maszyna {id_maszyna} not found"
+                    )
             finally:
                 cursor.close()
 

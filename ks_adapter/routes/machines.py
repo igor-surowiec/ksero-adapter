@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi.responses import Response
 
 from ..config import AppSettings
 from ..errors import InvalidRequest
@@ -100,5 +101,25 @@ def create_router(settings: AppSettings) -> APIRouter:
             id_maszyna, payload.model_dump(exclude_unset=True)
         )
 
+
+    @router.delete(
+        "/machines/{id_maszyna}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+        tags=["data"],
+        summary="Delete a machine",
+        description=(
+            "Deletes by ID_MASZYNA. The database DEL_MASZYNA_DELETE trigger also "
+            "deletes the machine's service orders. Returns 204 with no body, "
+            "404 if missing, or 409 if multiple machines share the ID. "
+            "Requires api.allow_writes and the configured X-API-Key."
+        ),
+    )
+    def delete_machine(
+        id_maszyna: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> Response:
+        service.delete_machine(id_maszyna)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

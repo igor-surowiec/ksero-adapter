@@ -30,6 +30,7 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines/{id_klient}` | create a machine; client ID from the URL and nonblank `marka` required |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
+| `DELETE` | `/machines/{id_maszyna}` | delete a machine and trigger-managed service orders (`204`) |
 | `GET` | `/cpc-settlement` | paginated CPC settlement records, search and JSON filters |
 | `GET` | `/cpc-settlement/{id_cpc_table}` | one CPC settlement |
 | `POST` | `/cpc-settlement` | create a CPC settlement |
@@ -295,6 +296,18 @@ orders. Requires writes enabled and the configured API key.
 
 ```bash
 curl -X PATCH http://127.0.0.1:8000/api/v1/machines/4 -H 'Content-Type: application/json' -d '{"model": "C224", "serial": "SN-0002"}'
+```
+
+`DELETE /machines/{id_maszyna}` permanently deletes a machine by `ID_MASZYNA`
+(the business identifier from `GET /machines`). Returns `204` with no body,
+`404` when missing, or `409` when multiple machines share that ID. The database
+`DEL_MASZYNA_DELETE` trigger also deletes linked service orders (`ZLECENIE`)
+and applies its configured synchronization behavior in the same transaction.
+Other related records follow the connected database's constraints and triggers.
+Requires writes enabled and the configured API key.
+
+```http
+DELETE /api/v1/machines/4
 ```
 
 ## More examples

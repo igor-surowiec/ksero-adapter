@@ -126,6 +126,9 @@ class FakeService:
             "id_maszyna_table": 2001, "id_maszyna": id_maszyna, **values,
         })
 
+    def delete_machine(self, id_maszyna: int) -> None:
+        self.calls.append({"action": "delete_machine", "id_maszyna": id_maszyna})
+
     def fetch_cpc(
         self, *, limit: int | None = None, offset: int = 0,
         search: str | None = None, filters: str | None = None,

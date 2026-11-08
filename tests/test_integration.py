@@ -1290,3 +1290,52 @@ def test_create_machine_rejects_missing_manufacturer_without_inserting(
         assert write_service.fetch_rows("MASZYNA", limit=1)["total"] == before
     finally:
         delete_client(write_service, owner["id_klient_table"])
+
+
+
+@requires_writable
+def test_delete_machine_endpoint_removes_machine_and_orders(
+    write_service: DatabaseService,
+) -> None:
+    from ks_adapter.sql import build_insert
+
+    owner = write_service.create_client({"nazwa": "KS ADAPTER DELETE MACHINE TEST"})
+    machine = other = None
+    try:
+        machine = write_service.create_machine({
+            "id_klient": owner["id_klient"], "marka": "KS DELETE TEST",
+        })
+        other = write_service.create_machine({
+            "id_klient": owner["id_klient"], "marka": "KS PRESERVE TEST",
+        })
+        with write_service.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(build_insert(
+                    "ZLECENIE", ["ID_KLIENT", "ID_MASZYNA"],
+                    returning=["ID_ZLECENIE_TABLE"],
+                ), [owner["id_klient"], machine["id_maszyna"]])
+                order_key = cursor.fetchone()[0]
+            finally:
+                cursor.close()
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            url = f"/api/v1/machines/{machine['id_maszyna']}"
+            response = client.delete(url)
+            assert response.status_code == 204
+            assert response.content == b""
+            assert client.delete(url).status_code == 404
+        for table, key, value, count in [
+            ("MASZYNA", "ID_MASZYNA_TABLE", machine["id_maszyna_table"], 0),
+            ("ZLECENIE", "ID_ZLECENIE_TABLE", order_key, 0),
+            ("MASZYNA", "ID_MASZYNA_TABLE", other["id_maszyna_table"], 1),
+            ("KLIENT", "ID_KLIENT_TABLE", owner["id_klient_table"], 1),
+        ]:
+            assert write_service.fetch_rows(
+                table, filters=json.dumps({key: value}),
+            )["total"] == count
+    finally:
+        for item in (machine, other):
+            if item:
+                delete_machine(write_service, item["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])

@@ -1279,3 +1279,44 @@ def test_machine_manufacturer_required_only_for_creation(client: TestClient) -> 
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
     assert "marka" in schemas["MachineCreate"]["required"]
     assert "marka" not in schemas["MachineUpdate"].get("required", [])
+
+
+
+def test_delete_machine_endpoint(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.delete("/api/v1/machines/4")
+    assert response.status_code == 204
+    assert response.content == b""
+    assert fake_service.calls == [{"action": "delete_machine", "id_maszyna": 4}]
+
+
+@pytest.mark.parametrize("error, status", [
+    (RecordNotFound("missing"), 404), (RecordConflict("duplicate"), 409),
+    (WritesDisabled("disabled"), 403),
+])
+def test_delete_machine_maps_service_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def delete_machine(self, id_maszyna: int) -> None:
+            raise error
+
+    app = create_app(make_settings(), service=FailingService())
+    with TestClient(app) as client:
+        response = client.delete("/api/v1/machines/4")
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__
+
+
+@pytest.mark.parametrize("key", ["0", "-1", "invalid"])
+def test_delete_machine_rejects_invalid_path(client: TestClient, key: str) -> None:
+    assert client.delete("/api/v1/machines/" + key).status_code == 422
+
+
+def test_delete_machine_requires_api_key() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        assert client.delete("/api/v1/machines/4").status_code == 401
+        response = client.delete(
+            "/api/v1/machines/4", headers={"X-API-Key": "secret"},
+        )
+    assert response.status_code == 204
