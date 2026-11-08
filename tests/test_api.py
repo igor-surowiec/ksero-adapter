@@ -41,104 +41,15 @@ def test_health(client: TestClient) -> None:
     assert body["pool"]["capacity"] == 5
 
 
-def test_list_tables(client: TestClient) -> None:
-    response = client.get("/api/v1/tables")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["count"] == 2
-    assert [table["name"] for table in body["tables"]] == ["APPUSER", "V_USERS"]
-
-
-def test_describe_table(client: TestClient) -> None:
-    response = client.get("/api/v1/tables/APPUSER")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["kind"] == "table"
-    assert [column["name"] for column in body["columns"]] == ["ID", "NAME"]
-
-
-def test_describe_missing_table(client: TestClient) -> None:
-    response = client.get("/api/v1/tables/NOPE")
-    assert response.status_code == 404
-    assert response.json()["error"] == "TableNotFound"
-
-
-def test_rows_passes_pagination_and_filters(
-    client: TestClient, fake_service: FakeService
-) -> None:
-    response = client.get(
-        "/api/v1/tables/APPUSER/rows",
-        params={
-            "limit": 5,
-            "offset": 10,
-            "order_by": "ID DESC",
-            "filters": '{"NAME": "ACME"}',
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["limit"] == 5
-    assert body["offset"] == 10
-    assert body["rows"] == [{"ID": 11, "NAME": "ACME"}]
-    call = fake_service.calls[-1]
-    assert call["table"] == "APPUSER"
-    assert call["limit"] == 5
-    assert call["offset"] == 10
-    assert call["order_by"] == "ID DESC"
-    assert call["filters"] == '{"NAME": "ACME"}'
-
-
-def test_rows_rejects_invalid_limit(client: TestClient) -> None:
-    response = client.get("/api/v1/tables/APPUSER/rows", params={"limit": 0})
-    assert response.status_code == 422
-
-
-def test_rows_maps_column_errors(client: TestClient) -> None:
-    response = client.get(
-        "/api/v1/tables/APPUSER/rows", params={"filters": '{"BAD": 1}'}
-    )
-    assert response.status_code == 400
-    assert response.json()["error"] == "ColumnNotFound"
-
-
-def test_rows_maps_missing_table(client: TestClient) -> None:
-    response = client.get("/api/v1/tables/MISSING/rows")
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Table or view 'MISSING' does not exist"
-
-
-def test_query_endpoint(client: TestClient, fake_service: FakeService) -> None:
-    response = client.post(
-        "/api/v1/query",
-        json={"sql": "SELECT 1 AS ONE FROM RDB$DATABASE", "limit": 3},
-    )
-    assert response.status_code == 200
-    assert response.json()["rows"] == [{"ONE": 1}]
-    call = fake_service.calls[-1]
-    assert call["limit"] == 3
-    assert call["sql"] == "SELECT 1 AS ONE FROM RDB$DATABASE"
-
-
-def test_query_requires_sql(client: TestClient) -> None:
-    response = client.post("/api/v1/query", json={})
-    assert response.status_code == 422
-
-
-def test_schema_refresh(client: TestClient) -> None:
-    response = client.post("/api/v1/schema/refresh")
-    assert response.status_code == 200
-    assert response.json() == {"refreshed": True, "table_count": 2}
-
-
 def test_api_key_is_enforced_when_configured() -> None:
     settings = make_settings(api_key="secret")
     app = create_app(settings, service=FakeService())
     with TestClient(app) as client:
-        assert client.get("/api/v1/tables").status_code == 401
-        denied = client.get("/api/v1/tables", headers={"X-API-Key": "nope"})
+        assert client.get("/api/v1/clients").status_code == 401
+        denied = client.get("/api/v1/clients", headers={"X-API-Key": "nope"})
         assert denied.status_code == 401
         assert denied.json()["error"] == "AuthenticationError"
-        allowed = client.get("/api/v1/tables", headers={"X-API-Key": "secret"})
+        allowed = client.get("/api/v1/clients", headers={"X-API-Key": "secret"})
         assert allowed.status_code == 200
         # Health checks stay open so orchestrators can probe the process.
         assert client.get("/api/v1/health").status_code == 200
@@ -148,7 +59,6 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     response = client.get("/openapi.json")
     assert response.status_code == 200
     paths = response.json()["paths"]
-    assert "/api/v1/tables/{table}/rows" in paths
     assert "/api/v1/clients" in paths
     assert "post" in paths["/api/v1/clients"]
     assert "/api/v1/agreements" in paths
@@ -156,7 +66,6 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     assert "post" in paths["/api/v1/machines"]
     assert "/api/v1/orders" in paths
     assert "/api/v1/invoices" in paths
-    assert "/api/v1/query" in paths
 
 
 def test_clients_endpoint(client: TestClient, fake_service: FakeService) -> None:
@@ -1236,4 +1145,27 @@ def test_api_tester_is_html_at_exact_prefix_without_db_access(prefix: str) -> No
         assert 'fetch("/openapi.json")' in response.text
         assert prefix not in app.openapi()["paths"]
         assert client.get(prefix + "/").json()["api_prefix"] == prefix
+    assert service.calls == []
+
+
+@pytest.mark.parametrize("prefix", ["/api/v1", "/custom/v2"])
+def test_database_routes_are_removed(prefix: str) -> None:
+    service = FakeService()
+    app = create_app(make_settings(prefix=prefix), service=service)
+    removed = [
+        ("GET", "/tables"),
+        ("GET", "/tables/APPUSER"),
+        ("GET", "/tables/APPUSER/rows"),
+        ("POST", "/schema/refresh"),
+        ("POST", "/query"),
+    ]
+    with TestClient(app) as client:
+        for method, path in removed:
+            assert client.request(method, prefix + path).status_code == 404
+        spec = client.get("/openapi.json").json()
+        assert not any(
+            path.startswith(prefix + suffix)
+            for path in spec["paths"]
+            for suffix in ("/tables", "/schema", "/query")
+        )
     assert service.calls == []

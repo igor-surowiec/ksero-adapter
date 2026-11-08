@@ -22,13 +22,11 @@ logger = logging.getLogger(__name__)
 DESCRIPTION = """
 HTTP access to a Firebird database.
 
-* **Schema** - list tables/views, inspect their columns.
-* **Rows** - paginated access with ordering and JSON based filters.
-* **Query** - run your own single read-only `SELECT`/`WITH` statement.
-* **Clients** - create a contractor (opt-in via `api.allow_writes`).
+* **Clients** - list, create, update and delete contractors (opt-in writes).
 * **Machines** - create a machine, optionally assigned to a contractor.
 * **Agreements** - create/update service agreements and machine links.
 * **CPC** - list settlements; create/update/delete with opt-in writes.
+* **Orders and invoices** - paginated read-only access.
 
 Identifiers are quoted and values are always bound parameters. Read requests can
 never modify the database; writing routes are `POST /clients`,

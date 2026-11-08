@@ -76,7 +76,7 @@ marker.
   prefix; inputs come from OpenAPI and requests run only on submission.
 - `ks_adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
   `machines.py`, `cpc_settlement.py`, `orders.py`, `invoices.py`,
-  `database.py`, public `meta.py`); `common.py` holds shared dependencies.
+  public `meta.py`); `common.py` holds shared dependencies.
 - `ks_adapter/service/` - `DatabaseService` facade in `__init__.py`; resource
   operations and constants in `clients.py`, `agreements.py`, `machines.py`,
   `cpc_settlement.py`, `orders.py`, `invoices.py`; shared pool/cache/query/write
@@ -88,7 +88,7 @@ marker.
   `write_session()`, `ping()`).
 - `ks_adapter/serialization.py` - Firebird to JSON types, `row_to_dict()`.
 - `ks_adapter/schemas/` - Pydantic wire models by matching resource, plus
-  `database.py`, `meta.py` and shared `common.py`. `__init__.py` re-exports the
+  `meta.py` and shared `common.py`. `__init__.py` re-exports the
   existing model names to preserve public imports.
 - `ks_adapter/config.py` - YAML + `${VAR}` + `KS_*` settings, validation.
 - `ks_adapter/errors.py` - `AdapterError` subclasses carrying HTTP statuses.

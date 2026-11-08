@@ -125,17 +125,6 @@ def test_query_rejects_writes(service: DatabaseService) -> None:
         service.run_query("DELETE FROM RDB$DATABASE")
 
 
-def test_api_serves_live_data(service: DatabaseService) -> None:
-    app = create_app(service.settings, service=service)
-    with TestClient(app) as client:
-        tables = client.get("/api/v1/tables")
-        assert tables.status_code == 200
-        name = tables.json()["tables"][0]["name"]
-        rows = client.get(f"/api/v1/tables/{name}/rows", params={"limit": 2})
-        assert rows.status_code == 200
-        assert rows.json()["table"] == name
-
-
 def test_clients_endpoint_lists_contractors(service: DatabaseService) -> None:
     page = service.fetch_clients(limit=5)
     assert page["limit"] == 5

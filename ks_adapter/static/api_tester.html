@@ -213,7 +213,7 @@ $("request-form").addEventListener("submit", async event => {
       ["clients", "Clients"], ["agreements", "Agreements"],
       ["machines", "Machines"], ["cpc-settlement", "CPC settlements"],
       ["orders", "Orders"], ["invoices", "Invoices"],
-      ["database", "Database and schema"], ["meta", "Service"]
+      ["meta", "Service"]
     ]);
     const sections = new Map();
     $("route-sections").replaceChildren();
@@ -224,7 +224,7 @@ $("request-form").addEventListener("submit", async event => {
     }
     for (const route of operations) {
       const resource = route.path.slice(prefix.length + 1).split("/")[0];
-      const key = groups.has(resource) ? resource : ["tables", "schema", "query"].includes(resource) ? "database" : "meta";
+      const key = groups.has(resource) ? resource : "meta";
       const button = document.createElement("button");
       button.type = "button"; button.textContent = route.method + " " + route.path;
       button.route = route;

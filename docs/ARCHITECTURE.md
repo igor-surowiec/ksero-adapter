@@ -81,8 +81,8 @@ response ◄──────────────────────�
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service/`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
-  (`/tables/...`, `/clients`, `/agreements`, `/machines`, `/orders`, `/invoices`);
-  `/health` and `/query` skip it.
+  (`/clients`, `/agreements`, `/machines`, `/cpc-settlement`, `/orders`,
+  `/invoices`); `/health` skips it.
 
 ### 1.3 Example traces
 
@@ -110,11 +110,6 @@ Variations:
   and are not exposed, and the per-VAT-rate matrix, the pre-correction block, the
   `F_*` marker flags and the synchronisation bookkeeping columns are left out of the
   projection. Ordering is `DATA_WYST, ID_FAKTURA_TABLE` so pages stay stable.
-- `POST /query` runs `sql.ensure_read_only()` (single `SELECT`/`WITH`; write/DDL/session
-  keywords and a second statement rejected), caps rows at `api.max_query_rows`, and
-  fetches one extra row only to set `truncated`.
-- `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
-  operator or column → `400`) and `_order_clause()` for `order_by`.
 - `POST /clients` is a trace that writes. `WritesDisabled` → `403` when
   `api.allow_writes` is off, `InvalidRequest` → `400` for a missing/blank `nazwa`, an
   unknown field or an over-long value, then `_insert_plan()` merges the payload with
@@ -297,8 +292,6 @@ existing callers and dependency overrides.
 - `clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py` own their
   resource's read/write handlers.
 - `orders.py` and `invoices.py` own their curated list endpoints.
-- `database.py` owns table/schema inspection, generic row access, schema refresh
-  and read-only SQL queries.
 - `meta.py` owns the public HTML tester, service information and health handlers.
 - `common.py` holds `get_service()`, `require_api_key()` (constant-time API-key
   comparison), `page_limit()` and `FILTERS_DESCRIPTION`.
@@ -318,6 +311,11 @@ path/query and request-field inputs
 from the schemas; raw JSON supports explicit nulls and arrays. Requests run
 only on submission, use same-origin fetch and the optional in-memory API key,
 and display status and response as text. No build step or dependencies.
+
+Generic table inspection, row browsing, schema refresh and SQL queries are not
+HTTP routes. Their read-only `DatabaseService` helpers remain available locally
+for agent diagnostics, integration tests and the CLI `--check`. The schema
+cache is still required by resource operations.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
@@ -425,8 +423,7 @@ they belong to the program's clock and data version.
 **`schemas/`** — request/response models are grouped in the matching resource
 modules (`clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py`,
 `orders.py`, `invoices.py`). Related models and their inheritance stay together.
-`database.py` holds table/column/row/query/schema-refresh models; `meta.py`
-holds service/health/pool models; `common.py` defines `DecimalValue`.
+`meta.py` holds service/health/pool models; `common.py` defines `DecimalValue`.
 `__init__.py` re-exports existing model names, preserving imports from
 `ks_adapter.schemas`. Routes import their resource models directly. Model
 names, field constraints, response shapes and OpenAPI schemas are unchanged.

@@ -34,9 +34,9 @@ without touching the file:
 | `KS_DB_PATH`, `KS_DB_USER`, `KS_DB_PASSWORD`, `KS_DB_CHARSET` | database and credentials |
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
-| `KS_API_KEY` | require `X-API-Key` on data/schema requests |
+| `KS_API_KEY` | require `X-API-Key` on resource requests |
 | `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /agreements/{id_umowacpc}`, `POST/PATCH/DELETE /cpc-settlement`) |
-| `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
+| `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT` | API page caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
 and a relative `database.path` is resolved against the project root (so
@@ -62,9 +62,6 @@ the same way. The existing `GET /api/v1/` still returns JSON service information
 | `GET` | exact prefix (no trailing slash) | HTML API tester (no API key) |
 | `GET` | `/` | JSON service information (no API key) |
 | `GET` | `/health` | database ping and pool statistics (no API key) |
-| `GET` | `/tables` | user tables and views |
-| `GET` | `/tables/{table}` | columns with readable SQL types |
-| `GET` | `/tables/{table}/rows` | page of rows, sorting, JSON filters |
 | `GET` | `/clients` | contractors (`KLIENT`) |
 | `POST` | `/clients` | create a contractor (`KLIENT`), `nazwa` plus optional fields |
 | `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
@@ -83,8 +80,6 @@ the same way. The existing `GET /api/v1/` still returns JSON service information
 | `DELETE` | `/cpc-settlement/{id_cpc_table}` | delete a settlement (`204`) |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
-| `POST` | `/schema/refresh` | drop and reload the schema cache |
-| `POST` | `/query` | one read-only `SELECT`/`WITH` with parameters |
 
 List endpoints take `limit` (default `api.default_limit`, max `api.max_limit`)
 and `offset`. The curated ones (`/clients`, `/agreements`, `/machines`,
@@ -226,7 +221,7 @@ Content-Type: application/json
 
 `GET /cpc-settlement` returns `{total, count, limit, offset, cpc}` with lower-cased
 settlement column names. It accepts `limit`, `offset`, `search` (invoice number
-and notes), and the same JSON `filters` syntax as the generic row endpoint.
+and notes), and the JSON `filters` syntax described below.
 Use filters for `id_klient`, `id_maszyna`, `id_umowacpc`, `rok` or `miesiac`.
 `GET /cpc-settlement/{id_cpc_table}` returns one record or `404`. Record keys are
 non-negative: existing legacy key `0` is supported.
@@ -325,10 +320,8 @@ curl -X PATCH http://127.0.0.1:8000/api/v1/machines/4 -H 'Content-Type: applicat
 ```
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/tables/KLIENCI/rows?limit=25&order_by=NAZWA%20ASC&filters={"TYP":1}'
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
 curl 'http://127.0.0.1:8000/api/v1/invoices?limit=20&search=2026'
-curl -X POST http://127.0.0.1:8000/api/v1/query -H 'Content-Type: application/json' -d '{"sql": "SELECT ID, NAZWA FROM KLIENCI WHERE ID > ? ORDER BY ID", "limit": 10, "parameters": [100]}'
 curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"nazwa": "ACME Sp. z o.o.", "nip": "1234567890", "poczta": "Warszawa"}'
 curl -X POST http://127.0.0.1:8000/api/v1/machines -H 'Content-Type: application/json' -d '{"id_klient": 42, "marka": "KONICA", "model": "C224", "serial": "SN-0001", "instalacja": "2026-01-02"}'
 ```
@@ -345,8 +338,7 @@ operator object:
 
 Supported operators: `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `like`, `contains`,
 `startswith`, `endswith`, `in`, `isnull`, `notnull`; unknown columns or
-operators give `400`. `POST /query` binds `parameters` to `?` placeholders,
-caps rows at `api.max_query_rows` and reports `truncated`.
+operators give `400`.
 
 ## Errors and auth
 
@@ -354,7 +346,7 @@ caps rows at `api.max_query_rows` and reports `truncated`.
 {"detail": "Table or view 'NOPE' does not exist", "error": "TableNotFound"}
 ```
 
-`400` invalid request or forbidden SQL, `401` missing/invalid `X-API-Key`,
+`400` invalid request, `401` missing/invalid `X-API-Key`,
 `409` ambiguous machine identifier, `403` writes disabled (`api.allow_writes` off), `404` unknown table or client record, `422`
 validation, `500`/`503` database failure. When `api.api_key` is set, send it as
 `X-API-Key` on every route except `/health`.
