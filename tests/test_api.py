@@ -642,10 +642,21 @@ def test_create_machine_sends_only_the_supplied_fields(
     }
 
 
-def test_create_machine_requires_the_owner(client: TestClient) -> None:
-    assert client.post("/api/v1/machines", json={}).status_code == 422
-    assert client.post("/api/v1/machines", json={"marka": "KONICA"}).status_code == 422
-    assert client.post("/api/v1/machines", json={"id_klient": 0}).status_code == 422
+@pytest.mark.parametrize("payload", [{}, {"marka": "KONICA"}, {"id_klient": None},
+                                     {"id_klient": 0}])
+def test_create_machine_owner_is_optional(
+    client: TestClient, fake_service: FakeService, payload: dict[str, Any],
+) -> None:
+    response = client.post("/api/v1/machines", json=payload)
+    assert response.status_code == 201
+    assert response.json()["id_klient"] == 0
+    assert fake_service.calls[-1]["values"] == {
+        key: value for key, value in payload.items() if value is not None
+    }
+
+
+def test_create_machine_rejects_invalid_owner(client: TestClient) -> None:
+    assert client.post("/api/v1/machines", json={"id_klient": -1}).status_code == 422
     assert client.post("/api/v1/machines", json={"id_klient": "x"}).status_code == 422
     assert client.post("/api/v1/machines").status_code == 422
 
@@ -783,3 +794,59 @@ def test_cors_allows_client_patch() -> None:
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == origin
     assert "PATCH" in response.headers["access-control-allow-methods"]
+
+
+def test_delete_client_returns_no_content(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.delete("/api/v1/clients/42")
+    assert response.status_code == 204
+    assert response.content == b""
+    assert fake_service.calls[-1] == {"action": "delete_client", "id_klient": 42}
+
+
+@pytest.mark.parametrize("key", ["0", "-1", "invalid", "42 OR 1=1"])
+def test_delete_client_rejects_invalid_path(client: TestClient, key: str) -> None:
+    assert client.delete(f"/api/v1/clients/{key}").status_code == 422
+
+
+def test_delete_client_requires_api_key() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        url = "/api/v1/clients/42"
+        assert client.delete(url).status_code == 401
+        assert client.delete(
+            url, headers={"X-API-Key": "wrong"}
+        ).status_code == 401
+        assert client.delete(
+            url, headers={"X-API-Key": "secret"}
+        ).status_code == 204
+
+
+@pytest.mark.parametrize("error, status", [
+    (WritesDisabled("Writes are disabled"), 403),
+    (RecordNotFound("Client not found"), 404),
+])
+def test_delete_client_reports_domain_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def delete_client(self, id_klient: int) -> None:
+            raise error
+
+    app = create_app(make_settings(), service=FailingService())
+    with TestClient(app) as client:
+        response = client.delete("/api/v1/clients/42")
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__
+
+
+def test_cors_allows_client_delete() -> None:
+    origin = "https://example.com"
+    app = create_app(make_settings(cors_origins=(origin,)), service=FakeService())
+    with TestClient(app) as client:
+        response = client.options(
+            "/api/v1/clients/42", headers={
+                "Origin": origin, "Access-Control-Request-Method": "DELETE",
+            },
+        )
+    assert response.status_code == 200
+    assert "DELETE" in response.headers["access-control-allow-methods"]

@@ -1511,18 +1511,14 @@ def test_create_machine_accepts_upper_cased_field_names() -> None:
     assert pool.executed[0][1] == [7, "KONICA"]
 
 
-def test_create_machine_requires_a_positive_owner() -> None:
+def test_create_machine_validates_a_supplied_owner() -> None:
     pool = _Pool([])
     service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
 
     for values in (
-        {},
-        {"marka": "KONICA"},
-        {"id_klient": 0},
         {"id_klient": -3},
         {"id_klient": True},
         {"id_klient": "7"},
-        {"id_klient": None},
     ):
         with pytest.raises(InvalidRequest):
             service.create_machine(values)
@@ -1731,3 +1727,81 @@ def test_create_client_rolls_back_when_serialization_fails(
         service.create_client({"nazwa": "ACME"})
     assert pool.committed == 0
     assert pool.rolled_back == 1
+
+
+def test_delete_client_uses_business_identifier_and_commits() -> None:
+    pool = _Pool([([("ID_KLIENT",)], [(4,)])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    assert service.delete_client(4) is None
+    assert pool.executed == [(
+        'DELETE FROM "KLIENT" WHERE "ID_KLIENT" = ? RETURNING "ID_KLIENT"', [4]
+    )]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+@pytest.mark.parametrize("row", [None, (None,)])
+def test_delete_client_missing_record_rolls_back(row: Any) -> None:
+    pool = _Pool([(None, [] if row is None else [row])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(RecordNotFound):
+        service.delete_client(4)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_delete_client_refuses_disabled_writes() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE)
+    with pytest.raises(WritesDisabled):
+        service.delete_client(4)
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("key", [0, -1, True, "4", "4 OR 1=1"])
+def test_delete_client_rejects_invalid_identifier(key: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.delete_client(key)
+    assert pool.executed == []
+
+
+def test_delete_client_rolls_back_database_failure() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(IndexError):
+        service.delete_client(4)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_delete_client_rejects_catalog_without_business_identifier() -> None:
+    pool = _Pool([])
+    table = TableInfo("KLIENT", "table", None, (
+        ColumnInfo("ID_KLIENT_TABLE", 0, "INTEGER", False),
+    ))
+    service = make_projection_service(pool, table, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.delete_client(4)
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("values, columns, params", [
+    ({}, '"ID_KLIENT"', [0]),
+    ({"id_klient": None}, '"ID_KLIENT"', [0]),
+    ({"id_klient": 0}, '"ID_KLIENT"', [0]),
+    ({"marka": "KONICA"}, '"MARKA", "ID_KLIENT"', ["KONICA", 0]),
+])
+def test_create_machine_allows_unassigned_owner(
+    values: Any, columns: str, params: list[Any],
+) -> None:
+    pool = _Pool([(MASZYNA_RETURNING, [(1, 2, 0, "KONICA", None, None, None)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    assert service.create_machine(values)["id_klient"] == 0
+    placeholders = ", ".join("?" for _ in params)
+    assert pool.executed[0][0].startswith(
+        f'INSERT INTO "MASZYNA" ({columns}) VALUES ({placeholders}) RETURNING '
+    )
+    assert pool.executed[0][1] == params
+    assert pool.committed == 1

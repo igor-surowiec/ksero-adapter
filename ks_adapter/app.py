@@ -30,7 +30,7 @@ HTTP access to a Firebird database.
 
 Identifiers are quoted and values are always bound parameters. Read requests can
 never modify the database; the writing routes are `POST /clients`, `POST /machines` and
-`PATCH /clients/{id_klient}`, all rejected with `403`
+`PATCH /clients/{id_klient}` and `DELETE /clients/{id_klient}`, all rejected with `403`
 unless `api.allow_writes` is enabled.
 """
 
@@ -72,7 +72,7 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.api.cors_origins),
-            allow_methods=["GET", "POST", "PATCH"],
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
             allow_headers=["*"],
         )
 

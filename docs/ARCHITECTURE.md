@@ -4,7 +4,7 @@
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
 read-only by default: the writing routes (`POST /clients`, `POST /machines`,
-`PATCH /clients/{id_klient}`)
+`PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
@@ -129,8 +129,9 @@ Variations:
 - `POST /machines` follows the same shape. The `MachineCreate` body is dumped without
   its `null` fields, `service.create_machine` maps the keys onto
   `MACHINE_WRITE_COLUMNS` (trimming strings, dropping blanks, rejecting unknown fields
-  and a missing/zero `id_klient`), keeps only the columns present in the catalog
-  snapshot and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
+  and invalid supplied client IDs), keeps only the columns present in the catalog
+  snapshot, merges `MACHINE_INSERT_DEFAULTS` (`ID_KLIENT` defaults to `0` for
+  unassigned machines) through `_insert_plan()`, and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
   inside `pool.write_session()`. `RETURNING` yields the row `INS_MASZYNA_RECORD`
   completed (generated `ID_MASZYNA_TABLE`/`ID_MASZYNA`, default `ID_ODDZIAL` and
   `ID_FIRMA`), so the answer is a `Machine` with `201`. `SYNWP` is never set, so
@@ -145,6 +146,14 @@ with bound values and a bound unique key. It runs in `pool.write_session()`;
 missing records (including Firebird's NULL-filled RETURNING tuple) raise
 `RecordNotFound` inside the transaction and roll back. Successful updates return
 the client projection with `200`. Insert defaults are never merged into updates.
+
+`DELETE /clients/{id_klient}` calls `DatabaseService.delete_client()` with a
+positive business identifier. The service enforces `_require_writes()`, resolves
+the key through the catalog and uses `sql.build_delete()` to produce
+`DELETE FROM "KLIENT" WHERE "ID_KLIENT" = ? RETURNING "ID_KLIENT"`.
+`_write_row()` detects missing clients (`RecordNotFound`, `404`) and commits only
+on success. The existing `DEL_KLIENT_RECORD` trigger deletes matching machines
+and contacts within the same transaction. The route returns an empty `204`.
 
 ### 1.4 Errors and shutdown
 
@@ -185,7 +194,7 @@ config errors work without the Firebird client. `ConfigError` → exit `2`, fail
 **`app.py`** — application factory. `create_app(settings=None, service=None)`,
 `DESCRIPTION` (text rendered in `/docs`), `_adapter_error_handler`,
 `_firebird_error_handler`. Owns the `lifespan` (closes the service it created),
-registers the router, enables GET/POST/PATCH CORS for configured origins, and serves the
+registers the router, enables GET/POST/PATCH/DELETE CORS for configured origins, and serves the
 unauthenticated `GET /` liveness route.
 
 **`api.py`** — the whole HTTP surface, built as a factory. `create_router(settings)`,
@@ -193,7 +202,7 @@ unauthenticated `GET /` liveness route.
 `hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
-`PATCH /clients/{id_klient}`,
+`PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`,
 `GET /agreements`, `GET /machines`, `POST /machines`, `GET /orders`,
 `GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
 first two is protected by the shared `protected` dependency list. Parameter bounds
@@ -234,7 +243,8 @@ search and sort column must pass.
 **`sql.py`** — all SQL text assembly. `quote_identifier()` (``"NAME"``, embedded quotes
 doubled), `ensure_read_only()`, `strip_sql_literals()` (drops comments and `'...'`/`"..."`
 literals before the keyword scan), `build_insert()` (quoted column list, `?` placeholders,
-optional `RETURNING`), `build_update()` (bound assignments and unique key), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
+optional `RETURNING`), `build_update()` (bound assignments and unique key),
+`build_delete()` (bound unique key and `RETURNING`), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
 Operators: `eq, ne, gt, ge, lt, le, like, contains, startswith,
 endswith, in, isnull, notnull`. Values are always `?` parameters; `LIKE` patterns escape
 `\ % _`, use `ESCAPE '\'`, and wrap the parameter in `CAST(? AS VARCHAR(1024))` to avoid
@@ -254,7 +264,8 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`create_client()`, `create_machine()`, `update_client()`, `run_query()`, plus the helpers `check_limit()`,
+`create_client()`, `create_machine()`, `update_client()`, `delete_client()`,
+`run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
 `_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
 and `_prepared_write_values()`, plus the
@@ -281,8 +292,9 @@ the matching `*_COLUMNS` projection), strings are trimmed, blanks are dropped an
 text value is limited with `CLIENT_TEXT_LENGTHS` / `MACHINE_TEXT_LENGTHS` (mirroring the
 column widths). `create_client()` then requires a non-blank `NAZWA`, merges the payload
 with `CLIENT_INSERT_DEFAULTS` through `_insert_plan()` and inserts the result with
-`RETURNING` built from `CLIENT_COLUMNS`; `create_machine()` requires a positive
-`ID_KLIENT` and returns `RETURNING` built from `MACHINE_COLUMNS`.
+`RETURNING` built from `CLIENT_COLUMNS`; `create_machine()` accepts an optional non-negative
+`ID_KLIENT`, defaults it to `0` (unassigned) through `MACHINE_INSERT_DEFAULTS`,
+and returns `RETURNING` built from `MACHINE_COLUMNS`.
 `_write_row()` executes each curated write and converts its returned row with
 `_serialize_row()` before committing. Missing update targets and conversion
 failures therefore roll back the transaction. `_serialize_row()` also handles
@@ -303,7 +315,7 @@ they belong to the program's clock and data version.
 `ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
 columns, unknown fields rejected),
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `MachineCreate` (the
-`POST /machines` body: `id_klient` plus the optional machine columns, unknown fields
+`POST /machines` body: all machine columns optional; `id_klient` defaults to `0`, unknown fields
 rejected), `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`. Projection
 fields are all optional, so a missing column never breaks validation, and money columns

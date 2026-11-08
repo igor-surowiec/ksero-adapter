@@ -552,3 +552,68 @@ def test_update_client_endpoint_preserves_omitted_fields(
         delete_client(write_service, created["id_klient_table"])
     with pytest.raises(RecordNotFound):
         write_service.update_client(key, {"nip": "123"})
+
+
+@requires_writable
+def test_delete_client_endpoint_removes_client_and_trigger_managed_machine(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER DELETE TEST"})
+    other = None
+    machine = None
+    try:
+        other = write_service.create_client({"nazwa": "KS ADAPTER KEEP TEST"})
+        machine = write_service.create_machine({"id_klient": owner["id_klient"]})
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            url = f"/api/v1/clients/{owner['id_klient']}"
+            response = client.delete(url)
+            assert response.status_code == 204
+            assert response.content == b""
+            assert client.delete(url).status_code == 404
+        assert write_service.fetch_rows(
+            "KLIENT", filters=json.dumps({"ID_KLIENT": owner["id_klient"]})
+        )["total"] == 0
+        assert write_service.fetch_rows(
+            "MASZYNA", filters=json.dumps({"ID_KLIENT": owner["id_klient"]})
+        )["total"] == 0
+        assert write_service.fetch_rows(
+            "KLIENT", filters=json.dumps({"ID_KLIENT": other["id_klient"]})
+        )["total"] == 1
+    finally:
+        if machine is not None:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        if other is not None:
+            delete_client(write_service, other["id_klient_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+def test_delete_client_is_refused_without_allow_writes(
+    service: DatabaseService,
+) -> None:
+    with pytest.raises(WritesDisabled):
+        service.delete_client(1)
+
+
+@requires_writable
+@pytest.mark.parametrize("payload", [{}, {"id_klient": None}, {"id_klient": 0},
+                                     {"marka": "KS ADAPTER UNASSIGNED TEST"}])
+def test_create_machine_endpoint_without_owner(
+    write_service: DatabaseService, payload: dict[str, object],
+) -> None:
+    app = create_app(write_service.settings, service=write_service)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/machines", json=payload)
+    assert response.status_code == 201
+    machine = response.json()
+    try:
+        assert machine["id_klient"] == 0
+        assert machine["id_maszyna"]
+        stored = write_service.fetch_rows(
+            "MASZYNA", filters=json.dumps({
+                "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+            }),
+        )["rows"][0]
+        assert stored["ID_KLIENT"] == 0
+    finally:
+        delete_machine(write_service, machine["id_maszyna_table"])

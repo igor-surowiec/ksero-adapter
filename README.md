@@ -5,7 +5,7 @@ HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.
 
 Every request runs a single SQL statement with quoted identifiers, bound
 parameters and a capped row count. Reads never modify anything; the only writes
-are curated client/machine inserts and client updates, and they stay off
+are curated client/machine inserts, client updates and deletions, disabled
 unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
 the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -35,7 +35,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `PATCH /clients/{id_klient}`, `POST /machines`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -57,9 +57,10 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/clients` | contractors (`KLIENT`) |
 | `POST` | `/clients` | create a contractor (`KLIENT`), `nazwa` plus optional fields |
 | `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
+| `DELETE` | `/clients/{id_klient}` | delete a contractor and trigger-managed machines/contacts (`204`) |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
-| `POST` | `/machines` | create a machine (`MASZYNA`), only `id_klient` required |
+| `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 | `POST` | `/schema/refresh` | drop and reload the schema cache |
@@ -80,9 +81,9 @@ Only the envelope keys (`total`, `count`, `limit`, `offset`, `clients`,
 Every response field is documented in the OpenAPI schema (`/docs` or
 `/openapi.json`).
 
-The writing routes return the stored row (`201` for inserts, `200` for
-updates), use the same `X-API-Key` as the read routes and
-answer `403` unless `api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
+Insert and update routes return the stored row (`201` and `200` respectively);
+deletion returns `204` with no body. All write routes use the same `X-API-Key`
+as the read routes and answer `403` unless `api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
 
 `POST /clients` takes the lower-cased column names of the `GET /clients`
 projection (`nazwa`, `nip`, `regon`, `adres`, `kod`, `poczta`, `telefon`,
@@ -115,13 +116,26 @@ changed. The response is the updated `Client` projection with `200`.
 curl -X PATCH http://127.0.0.1:8000/api/v1/clients/1001 -H 'Content-Type: application/json' -d '{"telefon": "123456789", "e_mail": "office@example.com"}'
 ```
 
+`DELETE /clients/{id_klient}` permanently removes the contractor identified by
+`ID_KLIENT` and returns `204` with no response body. An unknown client returns
+`404`. The existing `DEL_KLIENT_RECORD` database trigger also deletes that
+client's machines (`MASZYNA`) and contacts (`KONTAKT`) in the same transaction.
+Other references are handled by the connected database's constraints and
+triggers. Requires `KS_ALLOW_WRITES=true` and the configured API key.
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/v1/clients/42
+```
+
 `POST /machines` takes the lower-cased column names of the `GET /machines`
 projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
-one `MASZYNA` row; `id_klient` is the only required value, because
+one `MASZYNA` row. All fields are optional, so `{}` is valid. An omitted,
+`null` or zero `id_klient` means unassigned and is stored as `0`, because
+`MASZYNA.ID_KLIENT` cannot be NULL. Negative client IDs are rejected.
 `INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA` while
-`ID_ODDZIAL` and `ID_FIRMA` fall back to their column defaults. Omitted, `null`
-and blank fields are not inserted at all, strings are trimmed, and an unknown
-field name answers `422` instead of being dropped silently. Columns the
+`ID_ODDZIAL` and `ID_FIRMA` fall back to their column defaults. Other omitted,
+`null` and blank fields are not inserted at all, strings are trimmed, and an
+unknown field name answers `422` instead of being dropped silently. Columns the
 application derives from other data (`licznik_total`, `last_m`, `last_w`,
 `next_w`, `koszty`, `przychody`, `wynik`, `synwp`) cannot be written.
 

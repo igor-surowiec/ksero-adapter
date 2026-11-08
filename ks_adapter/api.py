@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Path, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response, status
 
 from .config import AppSettings
 from .errors import AuthenticationError
@@ -248,6 +248,28 @@ def create_router(settings: AppSettings) -> APIRouter:
             id_klient, payload.model_dump(exclude_unset=True)
         )
 
+    @router.delete(
+        "/clients/{id_klient}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+        tags=["data"],
+        summary="Delete a contractor (client)",
+        description=(
+            "Permanently deletes the client identified by ID_KLIENT. "
+            "The database DEL_KLIENT_RECORD trigger also deletes the client's "
+            "machines and contacts. Returns 204 with no body on success, or "
+            "404 when the client does not exist. Requires api.allow_writes "
+            "and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def delete_client(
+        id_klient: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> Response:
+        service.delete_client(id_klient)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @router.get(
         "/agreements",
         response_model=AgreementPage,
@@ -309,7 +331,8 @@ def create_router(settings: AppSettings) -> APIRouter:
         description=(
             "Inserts one row into the MASZYNA table and returns the stored row "
             "in the same shape as GET /machines (keys are the lower-cased "
-            "column names). 'id_klient' is the only required field: the "
+            "column names). All fields are optional; an omitted or null "
+            "id_klient is stored as 0 (unassigned). The "
             "INS_MASZYNA_RECORD trigger fills ID_MASZYNA_TABLE and ID_MASZYNA "
             "from their generators, ID_ODDZIAL, ID_FIRMA and IDVAT fall back to "
             "their column defaults, so the new row carries only the fields that "

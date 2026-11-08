@@ -119,6 +119,15 @@ def build_update(
     return statement
 
 
+def build_delete(table: str, *, key: str) -> str:
+    """Delete by a bound unique key, returning it to detect a missing record."""
+    identifier = quote_identifier(key)
+    return (
+        f"DELETE FROM {quote_identifier(table)} WHERE {identifier} = ? "
+        f"RETURNING {identifier}"
+    )
+
+
 def ensure_read_only(sql: str) -> str:
     """Validate that ``sql`` is a single read-only SELECT/WITH statement.
 

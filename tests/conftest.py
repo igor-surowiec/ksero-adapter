@@ -158,12 +158,15 @@ class FakeService:
             "nazwa": "ACME", **values,
         }
 
+    def delete_client(self, id_klient: int) -> None:
+        self.calls.append({"action": "delete_client", "id_klient": id_klient})
+
     def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
         self.calls.append({"action": "create_machine", "values": dict(values)})
         return {
             "id_maszyna_table": 2001,
             "id_maszyna": 84,
-            "id_klient": values.get("id_klient"),
+            "id_klient": values.get("id_klient", 0),
             "id_oddzial": 1,
             "marka": values.get("marka"),
             "serial": values.get("serial"),

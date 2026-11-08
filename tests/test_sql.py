@@ -269,3 +269,11 @@ def test_build_update_quotes_identifiers_and_requires_assignments() -> None:
     )
     with pytest.raises(InvalidRequest):
         build_update("KLIENT", [], key="ID_KLIENT_TABLE")
+
+
+def test_build_delete_quotes_identifiers_and_binds_the_key() -> None:
+    from ks_adapter.sql import build_delete
+
+    assert build_delete('we"ird', key='I"D') == (
+        'DELETE FROM "we""ird" WHERE "I""D" = ? RETURNING "I""D"'
+    )

@@ -322,18 +322,22 @@ class MachinePage(BaseModel):
 class MachineCreate(BaseModel):
     """Payload of ``POST /machines``.
 
-    Only ``id_klient`` is mandatory: the ``INS_MASZYNA_RECORD`` trigger assigns
+    All fields are optional. An omitted or null ``id_klient`` is stored as
+    ``0`` (unassigned); the ``INS_MASZYNA_RECORD`` trigger assigns
     ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators and
     ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults, so
-    every other field may be omitted.  An omitted, ``null`` or blank field is not
-    inserted at all, which leaves the column at its default.  Field names are the
+    every other field may be omitted. Other omitted, ``null`` or blank fields
+    are not inserted, leaving their column defaults. Field names are the
     lower-cased column names and unknown fields are rejected, because a machine
     has many similar columns and a typo would otherwise be dropped silently.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    id_klient: int = Field(ge=1, description="Owner (KLIENT.ID_KLIENT)")
+    id_klient: int | None = Field(
+        default=None, ge=0,
+        description="Owner (KLIENT.ID_KLIENT); omitted, null or 0 means unassigned",
+    )
     id_oddzial: int | None = Field(
         default=None, description="Branch (column default 1)"
     )

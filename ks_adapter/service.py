@@ -1,9 +1,6 @@
-"""Business logic for curated reads, inserts and client updates.
+"""Business logic for curated reads and writes.
 
-Every read path builds a single ``SELECT``/``WITH`` statement; the only methods
-that write are :meth:`DatabaseService.create_client` and
-:meth:`DatabaseService.create_machine` and
-:meth:`DatabaseService.update_client`, all gated by ``api.allow_writes``.
+Curated writes require ``api.allow_writes`` and use ``pool.write_session()``.
 """
 
 from __future__ import annotations
@@ -23,6 +20,7 @@ from .pool import ConnectionPool
 from .schema import SchemaCache, TableInfo
 from .serialization import row_to_dict, serialize_rows
 from .sql import (
+    build_delete,
     build_insert,
     build_search,
     build_update,
@@ -328,6 +326,9 @@ MACHINE_WRITE_COLUMNS: tuple[str, ...] = (
     "AKTYWNA",
     "KOLOROWA",
 )
+
+#: ID_KLIENT is NOT NULL; legacy unassigned machines use 0 instead of NULL.
+MACHINE_INSERT_DEFAULTS: dict[str, Any] = {"ID_KLIENT": 0}
 
 #: Widths of the ``MASZYNA`` text columns.  Longer values are rejected up front,
 #: otherwise Firebird answers with a string-truncation error instead of a clear
@@ -969,12 +970,7 @@ class DatabaseService:
         Null and blank optional values explicitly clear the stored field.
         """
         self._require_writes()
-        if (
-            not isinstance(id_klient, int)
-            or isinstance(id_klient, bool)
-            or id_klient < 1
-        ):
-            raise InvalidRequest("'id_klient' must be a positive integer")
+        self._check_client_id(id_klient)
         prepared = self._prepared_write_values(
             values, CLIENT_WRITE_COLUMNS, CLIENT_TEXT_LENGTHS,
             preserve_empty=True,
@@ -1001,13 +997,31 @@ class DatabaseService:
             not_found=RecordNotFound(f"Client with id_klient {id_klient} not found"),
         )
 
+    def delete_client(self, id_klient: int) -> None:
+        """Delete a client by ID_KLIENT, including trigger-managed dependents.
+
+        DEL_KLIENT_RECORD also deletes the client's machines and contacts.
+        Missing clients raise RecordNotFound and roll back the transaction.
+        """
+        self._require_writes()
+        self._check_client_id(id_klient)
+        info = self.schema.get(CLIENTS_TABLE)
+        key = info.column_map.get("ID_KLIENT")
+        if key is None:
+            raise InvalidRequest("Client table has no unique ID_KLIENT key")
+        self._write_row(
+            info.name, [key], build_delete(info.name, key=key), [id_klient],
+            not_found=RecordNotFound(f"Client with id_klient {id_klient} not found"),
+        )
+
     def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Insert a machine into ``MASZYNA`` and return the stored row.
 
         ``values`` is keyed by the lower-cased column names of the curated
         projection (``{"id_klient": 7, "marka": "KONICA"}``); only the fields of
         :data:`MACHINE_WRITE_COLUMNS` are accepted and only the ones the caller
-        supplies are inserted.  ``ID_KLIENT`` is the mandatory value: the
+        supplies are inserted, with ``ID_KLIENT`` defaulting to ``0`` (unassigned).
+        The
         ``BEFORE INSERT`` trigger ``INS_MASZYNA_RECORD`` fills
         ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators,
         ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults
@@ -1021,30 +1035,37 @@ class DatabaseService:
         prepared = self._prepared_write_values(
             values, MACHINE_WRITE_COLUMNS, MACHINE_TEXT_LENGTHS
         )
-        owner = prepared.get("ID_KLIENT")
-        if not isinstance(owner, int) or isinstance(owner, bool) or owner < 1:
-            raise InvalidRequest("'id_klient' must be a positive integer")
+        owner = prepared.get("ID_KLIENT", 0)
+        if not isinstance(owner, int) or isinstance(owner, bool) or owner < 0:
+            raise InvalidRequest("'id_klient' must be a non-negative integer")
 
         info = self.schema.get(MACHINES_TABLE)
         if "ID_KLIENT" not in info.column_map:
             raise InvalidRequest(
                 f"Table '{info.name}' does not contain the expected machine columns"
             )
-        columns = [
-            column
-            for column in MACHINE_WRITE_COLUMNS
-            if column in prepared and column in info.column_map
-        ]
+        columns, params = _insert_plan(
+            prepared, MACHINE_INSERT_DEFAULTS, info.column_map
+        )
         selected = [
             column for column in MACHINE_COLUMNS if column in info.column_map
         ]
         statement = build_insert(info.name, columns, returning=selected)
 
         return self._write_row(
-            info.name, selected, statement, [prepared[column] for column in columns]
+            info.name, selected, statement, params
         )
 
     # -- helpers ----------------------------------------------------------
+    @staticmethod
+    def _check_client_id(id_klient: int) -> None:
+        if (
+            not isinstance(id_klient, int)
+            or isinstance(id_klient, bool)
+            or id_klient < 1
+        ):
+            raise InvalidRequest("'id_klient' must be a positive integer")
+
     def _require_writes(self) -> None:
         if not self.settings.api.allow_writes:
             raise WritesDisabled(
