@@ -1,7 +1,7 @@
 # KS Adapter configuration. Values may reference environment variables:
 #   ${NAME}            -> required environment variable
 #   ${NAME:-default}   -> environment variable with fallback
-# The same settings can be overridden with KS_* variables (see README).
+# The same settings can be overridden with KS_* variables (see docs/CONFIGURATION.md).
 
 server:
   host: 127.0.0.1

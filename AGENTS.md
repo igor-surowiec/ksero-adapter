@@ -8,9 +8,11 @@ data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
 `PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}`
 and CPC POST/PATCH/DELETE are opt-in write routes.
 
-User documentation is [`README.md`](README.md), the flow and file-by-file
-reference is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Read both before
-changing behaviour - this file only adds the rules and recipes that are easy to
+Quick setup is in [`README.md`](README.md). Detailed references are
+[`docs/ROUTES.md`](docs/ROUTES.md),
+[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Read the relevant references
+before changing behaviour; this file adds rules and recipes that are easy to
 get wrong.
 
 ## Non-negotiable invariants
@@ -118,12 +120,12 @@ marker.
    `routes/meta.py` is public. Register any new resource module in `api.py`.
 4. `FakeService.fetch_x` in `tests/conftest.py`, tests in `test_api.py` /
    `test_service.py`, and live coverage in `test_integration.py` when it helps.
-5. A row in the README endpoint table; `/docs` documents the fields.
+5. A row in the `docs/ROUTES.md` endpoint table; `/docs` documents the fields.
 
 ### Add a setting
 
 `config.py` (dataclass field, `_build_settings`,
-`_ENV_OVERRIDES`), then `config/config.yaml`, then the README env table when
+`_ENV_OVERRIDES`), then `config/config.yaml`, then the `docs/CONFIGURATION.md` env table when
 the variable is public.
 
 ### Add a write
@@ -205,6 +207,6 @@ the variable is public.
 1. `python -m pytest -q` green; the live suite green when a database is
    available.
 2. `python -m ks_adapter --check` still passes after config/service changes.
-3. README / ARCHITECTURE updated when endpoints, settings or flow changed.
+3. Routes, configuration and architecture docs updated when their contracts change.
 4. No scratch files left behind (`.tmp_*` is git-ignored but must not be
    committed) and no `.fdb` in the diff.

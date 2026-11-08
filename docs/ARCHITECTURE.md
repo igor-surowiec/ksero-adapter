@@ -10,8 +10,9 @@ read-only by default: the writing routes (`POST /clients`, `POST /machines`, `PO
 are disabled unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
-plus a short change checklist at the end. Installation, configuration keys and the full
-HTTP contract are in [`README.md`](../README.md).
+plus a short change checklist at the end. Installation is in [`README.md`](../README.md); configuration keys and the
+HTTP contract are in [CONFIGURATION.md](CONFIGURATION.md) and
+[ROUTES.md](ROUTES.md).
 
 ---
 
@@ -308,7 +309,7 @@ existing callers and dependency overrides.
 Resource modules contain HTTP validation and calls to `DatabaseService`, with
 no database work of their own. Prefix/authentication wiring stays in `api.py`;
 shared pagination limits come from the settings. Response models, paths,
-operation IDs and validation behavior are unchanged by the split. See README
+operation IDs and validation behavior are unchanged by the split. See [ROUTES.md](ROUTES.md)
 for the full endpoint list. Tests check API-key enforcement across all composed
 routes, including custom prefixes.
 
@@ -468,9 +469,13 @@ when `KS_TEST_DB_PATH` points at a real database; the write tests additionally n
 **`.gitignore`** — bytecode, virtualenvs, `.pytest_cache/`, coverage, logs, `.tmp_*` and
 `*.fdb`/`*.FDB`, so the database (and its customer data) is never committed.
 
-**`README.md`** — the short user manual: what the project is, install, configuration
-(environment variables), the endpoint table with a few `curl` examples, error codes and
-tests. Read it first; this file is the companion for implementers.
+**`README.md`** — brief app structure, package installation and server startup.
+
+**`docs/ROUTES.md`** — route inventory, payload behavior, examples and HTTP errors.
+
+**`docs/CONFIGURATION.md`** — configuration settings and environment variables.
+
+**`docs/DEVELOPMENT.md`** — development packages, checks and test commands.
 
 **`AGENTS.md`** — the working agreement for AI agents and new contributors: the write
 switch/parameter/64 KB invariants, environment commands, layout, recipes for adding a
@@ -488,7 +493,7 @@ another database needs no code change.
 
 1. **New endpoint** — method in `service/` (reuse `_projection_page()` for a curated
    view), response model in `schemas/`, route in the matching `routes/`
-   module (registered through `api.create_router` for authentication), then a row in the `README.md` endpoint table.
+   module (registered through `api.create_router` for authentication), then a row in the `docs/ROUTES.md` endpoint table.
    A **writing** endpoint is the exception: it must be gated by `api.allow_writes`
    (raise `errors.WritesDisabled` → `403`), build its statement with
    `sql.build_insert()` / `sql.build_update()`, execute via `_write_row()`, and have a
@@ -496,9 +501,9 @@ another database needs no code change.
 2. **New field on a projection** — add the column name to the matching `*_COLUMNS`
    constant (plus `*_SEARCH_COLUMNS` if it must be searchable) and the optional field to
    the Pydantic model, named after the column in lower case; response details live in the
-   OpenAPI schema, so `README.md` only changes when the endpoint description does.
+   OpenAPI schema, so `docs/ROUTES.md` changes when the endpoint contract does.
 3. **New setting** — `config.py` (`_ENV_OVERRIDES`, dataclass field,
-   `_build_settings`), `config/config.yaml`, plus the `README.md` environment table when the
+   `_build_settings`), `config/config.yaml`, plus the `docs/CONFIGURATION.md` environment table when the
    variable should be public.
 4. Verify with `python -m ks_adapter --check` and `python -m pytest`.
 
