@@ -53,3 +53,9 @@ class DatabaseUnavailable(AdapterError):
     """The Firebird database could not be reached."""
 
     status_code = 503
+
+
+class RecordNotFound(AdapterError):
+    """The requested record does not exist."""
+
+    status_code = 404

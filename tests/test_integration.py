@@ -13,6 +13,7 @@ by accident against a production database.
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 from typing import Iterator
 
@@ -27,7 +28,7 @@ from ks_adapter.config import (
     ServerSettings,
     resolve_database_path,
 )
-from ks_adapter.errors import QueryNotAllowed, WritesDisabled
+from ks_adapter.errors import QueryNotAllowed, RecordNotFound, WritesDisabled
 from ks_adapter.service import DatabaseService
 
 DB_PATH = os.environ.get("KS_TEST_DB_PATH")
@@ -519,3 +520,35 @@ def test_create_machine_endpoint_over_http(write_service: DatabaseService) -> No
             delete_machine(write_service, body["id_maszyna_table"])
         delete_client(write_service, owner["id_klient_table"])
 
+
+
+@requires_writable
+def test_update_client_endpoint_preserves_omitted_fields(
+    write_service: DatabaseService,
+) -> None:
+    created = write_service.create_client({"nazwa": "KS ADAPTER UPDATE TEST"})
+    key = created["id_klient"]
+    try:
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            url = f"/api/v1/clients/{key}"
+            response = client.patch(url, json={"nip": "123", "adres": " "})
+            assert response.status_code == 200
+            updated = response.json()
+            assert updated["nip"] == "123"
+            assert updated["adres"] == ""
+            for field in created.keys() - {"nip", "adres"}:
+                assert updated[field] == created[field]
+            response = client.patch(url, json={"nip": None})
+            assert response.status_code == 200
+            assert response.json()["nip"] is None
+        stored = write_service.fetch_rows(
+            "KLIENT", filters=json.dumps({"ID_KLIENT": key})
+        )["rows"][0]
+        assert stored["NIP"] is None
+        assert stored["ID_FIRMA"] == 0
+        assert stored["NAZWA"] == created["nazwa"]
+    finally:
+        delete_client(write_service, created["id_klient_table"])
+    with pytest.raises(RecordNotFound):
+        write_service.update_client(key, {"nip": "123"})

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ks_adapter.app import create_app
-from ks_adapter.errors import WritesDisabled
+from ks_adapter.errors import InvalidRequest, RecordNotFound, WritesDisabled
 
 from .conftest import FakeService, make_settings
 
@@ -711,3 +712,57 @@ def test_create_machine_reports_disabled_writes_as_403() -> None:
         "error": "WritesDisabled",
     }
 
+
+
+def test_update_client_forwards_only_supplied_fields(
+    client: TestClient, fake_service: FakeService
+) -> None:
+    response = client.patch("/api/v1/clients/42", json={"nip": None})
+    assert response.status_code == 200
+    assert response.json()["id_klient"] == 42
+    assert fake_service.calls[-1] == {
+        "action": "update_client", "id_klient": 42,
+        "values": {"nip": None},
+    }
+
+
+@pytest.mark.parametrize("payload", [
+    {"id_klient": 1}, {"ostatnio": "2026-01-02"}, {"nip": "x" * 21},
+])
+def test_update_client_rejects_invalid_payload(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    assert client.patch("/api/v1/clients/1", json=payload).status_code == 422
+
+
+def test_update_client_authentication() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        url = "/api/v1/clients/1"
+        assert client.patch(url, json={"nip": "123"}).status_code == 401
+        assert client.patch(
+            url, json={"nip": "123"}, headers={"X-API-Key": "secret"}
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/clients/0", json={"nip": "123"},
+            headers={"X-API-Key": "secret"},
+        ).status_code == 422
+
+
+@pytest.mark.parametrize("error, status", [
+    (WritesDisabled("Writes are disabled"), 403),
+    (RecordNotFound("Client not found"), 404),
+    (InvalidRequest("Supply at least one field"), 400),
+])
+def test_update_client_reports_domain_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def update_client(
+            self, id_klient: int, values: Mapping[str, Any]
+        ) -> dict[str, Any]:
+            raise error
+
+    app = create_app(make_settings(), service=FailingService())
+    with TestClient(app) as client:
+        response = client.patch("/api/v1/clients/1", json={"nip": "123"})
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__

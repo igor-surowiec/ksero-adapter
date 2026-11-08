@@ -1,8 +1,9 @@
-"""Business logic for the curated reads and for the curated inserts.
+"""Business logic for curated reads, inserts and client updates.
 
 Every read path builds a single ``SELECT``/``WITH`` statement; the only methods
 that write are :meth:`DatabaseService.create_client` and
-:meth:`DatabaseService.create_machine`, both gated by ``api.allow_writes``.
+:meth:`DatabaseService.create_machine` and
+:meth:`DatabaseService.update_client`, all gated by ``api.allow_writes``.
 """
 
 from __future__ import annotations
@@ -12,13 +13,20 @@ import time
 from typing import Any, Mapping, Sequence
 
 from .config import AppSettings
-from .errors import ColumnNotFound, DatabaseUnavailable, InvalidRequest, WritesDisabled
+from .errors import (
+    ColumnNotFound,
+    DatabaseUnavailable,
+    InvalidRequest,
+    RecordNotFound,
+    WritesDisabled,
+)
 from .pool import ConnectionPool
 from .schema import SchemaCache, TableInfo
 from .serialization import serialize_rows, to_jsonable
 from .sql import (
     build_insert,
     build_search,
+    build_update,
     build_where,
     ensure_read_only,
     parse_filters,
@@ -976,6 +984,60 @@ class DatabaseService:
 
         return self._returned_row(info.name, selected, raw_row)
 
+    def update_client(
+        self, id_klient: int, values: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Update supplied client fields by unique business identifier.
+
+        Existing legacy defaults, generated keys and omitted fields are preserved.
+        Null and blank optional values explicitly clear the stored field.
+        """
+        if not self.settings.api.allow_writes:
+            raise WritesDisabled(
+                "Writes are disabled; enable 'api.allow_writes' (KS_ALLOW_WRITES)"
+            )
+        if (
+            not isinstance(id_klient, int)
+            or isinstance(id_klient, bool)
+            or id_klient < 1
+        ):
+            raise InvalidRequest("'id_klient' must be a positive integer")
+        prepared = self._prepared_insert_values(
+            values, CLIENT_WRITE_COLUMNS, CLIENT_TEXT_LENGTHS,
+            preserve_empty=True,
+        )
+        if not prepared:
+            raise InvalidRequest("Supply at least one client field to update")
+        if "NAZWA" in prepared and not prepared["NAZWA"]:
+            raise InvalidRequest("'nazwa' must not be empty")
+        info = self.schema.get(CLIENTS_TABLE)
+        if "ID_KLIENT" not in info.column_map:
+            raise InvalidRequest("Client table has no unique ID_KLIENT key")
+        for column in prepared:
+            if column not in info.column_map:
+                raise ColumnNotFound(f"Column '{column}' does not exist")
+        selected = [c for c in CLIENT_COLUMNS if c in info.column_map]
+        statement = build_update(
+            info.name,
+            [info.column_map[c] for c in prepared],
+            key=info.column_map["ID_KLIENT"],
+            returning=[info.column_map[c] for c in selected],
+        )
+        with self.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(statement, [*prepared.values(), id_klient])
+                raw_row = cursor.fetchone()
+                # Firebird 2.5 returns a NULL-filled RETURNING row for no match.
+                if raw_row is None or raw_row[selected.index("ID_KLIENT")] is None:
+                    raise RecordNotFound(
+                        f"Client with id_klient {id_klient} not found"
+                    )
+                result = self._returned_row(info.name, selected, raw_row)
+            finally:
+                cursor.close()
+        return result
+
     def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
         """Insert a machine into ``MASZYNA`` and return the stored row.
 
@@ -1051,6 +1113,8 @@ class DatabaseService:
         values: Mapping[str, Any],
         allowed: Sequence[str],
         lengths: Mapping[str, int],
+        *,
+        preserve_empty: bool = False,
     ) -> dict[str, Any]:
         """Validate and normalise the fields of a curated write payload.
 
@@ -1060,7 +1124,8 @@ class DatabaseService:
         :data:`CLIENT_INSERT_DEFAULTS`, or the database default).  The result
         follows the order of ``allowed``, which keeps the generated statement
         stable, and a field outside that list is refused instead of being dropped
-        silently.
+        silently. With ``preserve_empty``, explicit nulls and blanks are kept
+        for partial updates instead of invoking insert defaults.
         """
         if not isinstance(values, Mapping):
             raise InvalidRequest("Fields must be a JSON object")
@@ -1074,8 +1139,10 @@ class DatabaseService:
 
         prepared: dict[str, Any] = {}
         for column in allowed:
-            value = supplied.get(column)
-            if value is None:
+            if column not in supplied:
+                continue
+            value = supplied[column]
+            if value is None and not preserve_empty:
                 continue
             if isinstance(value, str):
                 value = value.strip()
@@ -1085,7 +1152,7 @@ class DatabaseService:
                         f"'{column.lower()}' must not be longer than "
                         f"{maximum} characters"
                     )
-                if not value:
+                if not value and not preserve_empty:
                     continue
             prepared[column] = value
         return prepared

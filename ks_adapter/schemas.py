@@ -194,6 +194,21 @@ class ClientCreate(BaseModel):
     rabat: int | None = Field(default=None, description="Discount")
 
 
+class ClientUpdate(ClientCreate):
+    """Partial client update; omitted fields retain their stored values.
+
+    Explicit null clears an optional field; empty strings clear text fields.
+    A supplied name must be non-null and non-blank (checked by the service).
+    """
+
+    nazwa: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=CLIENT_TEXT_LENGTHS["NAZWA"],
+        description="Full contractor name; cannot be cleared",
+    )
+
+
 class Agreement(BaseModel):
     """A service agreement (contract) stored in the ``UMOWACPC`` table."""
 

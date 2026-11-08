@@ -3,7 +3,8 @@
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
-read-only by default: the two writing routes (`POST /clients`, `POST /machines`)
+read-only by default: the writing routes (`POST /clients`, `POST /machines`,
+`PATCH /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
@@ -74,7 +75,7 @@ response ◄──────────────────────�
 - Each service call borrows **one** connection. `pool.session()` always rolls it back,
   so no transaction or record lock outlives a read request — together with the query
   guard that is what keeps every read read-only. `pool.write_session()` (used only by
-  `POST /clients` and `POST /machines`) commits on success and rolls back on any
+  `POST /clients`, `POST /machines` and client updates) commits on success and rolls back on any
   exception.
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
@@ -113,7 +114,7 @@ Variations:
   fetches one extra row only to set `truncated`.
 - `/tables/{table}/rows` adds `sql.parse_filters()` + `build_where()` (bad JSON,
   operator or column → `400`) and `_order_clause()` for `order_by`.
-- `POST /clients` is one of the two traces that write. `WritesDisabled` → `403` when
+- `POST /clients` is a trace that writes. `WritesDisabled` → `403` when
   `api.allow_writes` is off, `InvalidRequest` → `400` for a missing/blank `nazwa`, an
   unknown field or an over-long value, then `_insert_plan()` merges the payload with
   `CLIENT_INSERT_DEFAULTS` — the row profile the legacy program writes (`ID_FIRMA` `0`,
@@ -135,6 +136,16 @@ Variations:
   `ID_FIRMA`), so the answer is a `Machine` with `201`. `SYNWP` is never set, so
   nothing is queued for synchronisation.
 
+`PATCH /clients/{id_klient}` passes only explicitly supplied fields from
+`ClientUpdate` to `DatabaseService.update_client()`. It uses the same write gate
+and field whitelist, preserving explicit nulls and blanks when normalising.
+The service rejects an empty patch, a cleared name and unavailable columns.
+`sql.build_update()` builds `UPDATE ... WHERE ID_KLIENT = ? RETURNING ...`
+with bound values and a bound unique key. It runs in `pool.write_session()`;
+missing records (including Firebird's NULL-filled RETURNING tuple) raise
+`RecordNotFound` inside the transaction and roll back. Successful updates return
+the client projection with `200`. Insert defaults are never merged into updates.
+
 ### 1.4 Errors and shutdown
 
 | Raised in | Type | HTTP |
@@ -143,6 +154,7 @@ Variations:
 | `api.py` | `AuthenticationError` | `401` |
 | `service.py` (writes) | `WritesDisabled` | `403` |
 | `schema.py` | `TableNotFound` | `404` |
+| `service.py` | `RecordNotFound` | `404` |
 | `pool.py`, `schema.py` | `DatabaseUnavailable` | `503` |
 | request/response models | Pydantic `ValidationError` | `422` |
 | anywhere | uncaught `fdb.Error` | `500` (traceback logged) |
@@ -221,7 +233,7 @@ search and sort column must pass.
 **`sql.py`** — all SQL text assembly. `quote_identifier()` (``"NAME"``, embedded quotes
 doubled), `ensure_read_only()`, `strip_sql_literals()` (drops comments and `'...'`/`"..."`
 literals before the keyword scan), `build_insert()` (quoted column list, `?` placeholders,
-optional `RETURNING`), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
+optional `RETURNING`), `build_update()` (bound assignments and unique key), `Filter`, `parse_filters()`, `build_where()`, `build_search()`.
 Operators: `eq, ne, gt, ge, lt, le, like, contains, startswith,
 endswith, in, isnull, notnull`. Values are always `?` parameters; `LIKE` patterns escape
 `\ % _`, use `ESCAPE '\'`, and wrap the parameter in `CAST(? AS VARCHAR(1024))` to avoid
@@ -241,7 +253,7 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`create_client()`, `create_machine()`, `run_query()`, plus the helpers `check_limit()`,
+`create_client()`, `create_machine()`, `update_client()`, `run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
 `_check_parameters()`, `_returned_row()` and `_prepared_insert_values()`, and the
 module-level `_insert_plan()` that merges a payload with the legacy default profile.
@@ -257,7 +269,7 @@ alias table to keep in sync. `_projection_page()` is the shared implementation o
 `/clients`, `/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page
 query on one connection, columns missing from the connected database silently skipped.
 
-`create_client()` and `create_machine()` are the only writing methods: both refuse with
+The insert methods `create_client()` and `create_machine()` both refuse with
 `WritesDisabled` unless `api.allow_writes` is set, build their statement with
 `sql.build_insert()` and execute it inside `pool.write_session()`, so the row is
 committed or the transaction rolled back. Both take a mapping keyed by the lower-cased
@@ -283,7 +295,7 @@ they belong to the program's clock and data version.
 **`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
 `HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
 `TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
-`ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
+`ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
 columns, unknown fields rejected),
 `Agreement`/`AgreementPage`, `Machine`/`MachinePage`, `MachineCreate` (the
 `POST /machines` body: `id_klient` plus the optional machine columns, unknown fields

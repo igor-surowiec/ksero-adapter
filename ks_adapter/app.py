@@ -29,8 +29,8 @@ HTTP access to a Firebird database.
 * **Machines** - create a machine of a contractor (opt-in as well).
 
 Identifiers are quoted and values are always bound parameters. Read requests can
-never modify the database; the only writing statements are the curated `INSERT`s
-behind `POST /clients` and `POST /machines`, and both are rejected with `403`
+never modify the database; the writing routes are `POST /clients`, `POST /machines` and
+`PATCH /clients/{id_klient}`, all rejected with `403`
 unless `api.allow_writes` is enabled.
 """
 

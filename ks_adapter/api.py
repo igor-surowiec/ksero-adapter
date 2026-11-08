@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, status
 
 from .config import AppSettings
 from .errors import AuthenticationError
@@ -14,6 +14,7 @@ from .schemas import (
     Client,
     ClientCreate,
     ClientPage,
+    ClientUpdate,
     HealthResponse,
     InvoicePage,
     Machine,
@@ -224,6 +225,29 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.create_client(payload.model_dump(exclude_none=True))
+
+    @router.patch(
+        "/clients/{id_klient}",
+        response_model=Client,
+        tags=["data"],
+        summary="Update a contractor (client)",
+        description=(
+            "Updates only supplied fields, identified by the unique "
+            "id_klient from GET /clients. Omitted fields stay unchanged. "
+            "Null clears optional fields; blank strings clear text fields. "
+            "The name cannot be cleared. Returns 404 for an unknown record. "
+            "Requires api.allow_writes and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def update_client(
+        payload: ClientUpdate,
+        id_klient: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.update_client(
+            id_klient, payload.model_dump(exclude_unset=True)
+        )
 
     @router.get(
         "/agreements",

@@ -5,7 +5,7 @@ HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.
 
 Every request runs a single SQL statement with quoted identifiers, bound
 parameters and a capped row count. Reads never modify anything; the only writes
-are the curated `POST /clients` and `POST /machines` inserts, and they stay off
+are curated client/machine inserts and client updates, and they stay off
 unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
 the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -35,7 +35,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /machines`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `PATCH /clients/{id_klient}`, `POST /machines`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -56,6 +56,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/tables/{table}/rows` | page of rows, sorting, JSON filters |
 | `GET` | `/clients` | contractors (`KLIENT`) |
 | `POST` | `/clients` | create a contractor (`KLIENT`), `nazwa` plus optional fields |
+| `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
 | `GET` | `/agreements` | service agreements (`UMOWACPC`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), only `id_klient` required |
@@ -79,8 +80,8 @@ Only the envelope keys (`total`, `count`, `limit`, `offset`, `clients`,
 Every response field is documented in the OpenAPI schema (`/docs` or
 `/openapi.json`).
 
-`POST /clients` and `POST /machines` are the only writing routes: both return
-the stored row with `201`, use the same `X-API-Key` as the read routes and
+The writing routes return the stored row (`201` for inserts, `200` for
+updates), use the same `X-API-Key` as the read routes and
 answer `403` unless `api.allow_writes` / `KS_ALLOW_WRITES=true` is set.
 
 `POST /clients` takes the lower-cased column names of the `GET /clients`
@@ -99,6 +100,20 @@ that program: its contractor list is filtered by `ID_FIRMA`, and a row that
 keeps the trigger fallback of `1` (or plain `NULL`s) never appears there. The
 generated keys still come from `INS_KLIENT_RECORD`, and `ID_ODDZIAL` keeps its
 column default of `1`.
+
+`PATCH /clients/{id_klient}` updates an existing contractor using the
+unique `id_klient` returned by `GET /clients`, also used by machines and
+related records. It accepts the same writable fields as `POST /clients`, all
+optional. Only supplied fields change: omitted fields and the stored legacy
+profile stay untouched. Strings are trimmed; `""` clears a text field and
+`null` clears an optional field. A supplied `nazwa` cannot be null or blank.
+An empty update returns `400`; unknown or overlong fields return `422`;
+an unknown record returns `404`. Generated keys and `ostatnio` cannot be
+changed. The response is the updated `Client` projection with `200`.
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/clients/1001 -H 'Content-Type: application/json' -d '{"telefon": "123456789", "e_mail": "office@example.com"}'
+```
 
 `POST /machines` takes the lower-cased column names of the `GET /machines`
 projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
@@ -141,7 +156,7 @@ caps rows at `api.max_query_rows` and reports `truncated`.
 ```
 
 `400` invalid request or forbidden SQL, `401` missing/invalid `X-API-Key`,
-`403` writes disabled (`api.allow_writes` off), `404` unknown table, `422`
+`403` writes disabled (`api.allow_writes` off), `404` unknown table or client record, `422`
 validation, `500`/`503` database failure. When `api.api_key` is set, send it as
 `X-API-Key` on every route except `/health`.
 

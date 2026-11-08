@@ -145,6 +145,19 @@ class FakeService:
             row[key] = value
         return row
 
+    def update_client(
+        self, id_klient: int, values: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        self.calls.append({
+            "action": "update_client",
+            "id_klient": id_klient,
+            "values": dict(values),
+        })
+        return {
+            "id_klient_table": 1001, "id_klient": id_klient,
+            "nazwa": "ACME", **values,
+        }
+
     def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
         self.calls.append({"action": "create_machine", "values": dict(values)})
         return {

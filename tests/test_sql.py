@@ -259,3 +259,13 @@ def test_build_search_accepts_exactly_the_budgeted_number_of_columns() -> None:
 
     assert len(params) == MAX_SEARCH_COLUMNS
     assert sql.count("LIKE CAST(? AS VARCHAR(1024))") == MAX_SEARCH_COLUMNS
+
+
+def test_build_update_quotes_identifiers_and_requires_assignments() -> None:
+    from ks_adapter.sql import build_update
+
+    assert build_update('we"ird', ["NAME"], key="ID", returning=["ID"]) == (
+        'UPDATE "we""ird" SET "NAME" = ? WHERE "ID" = ? RETURNING "ID"'
+    )
+    with pytest.raises(InvalidRequest):
+        build_update("KLIENT", [], key="ID_KLIENT_TABLE")

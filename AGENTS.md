@@ -3,7 +3,8 @@
 Guidance for AI agents (and new contributors) working on **ks-adapter**, a
 FastAPI bridge in front of a Firebird database (Firebird 2.5, `WIN1250` Polish
 data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
-`POST /clients` and `POST /machines` are the two opt-in write routes.
+`POST /clients`, `POST /machines` and `PATCH /clients/{id_klient}`
+are opt-in write routes.
 
 User documentation is [`README.md`](README.md), the flow and file-by-file
 reference is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Read both before
@@ -14,9 +15,9 @@ get wrong.
 
 1. **Reads are read-only.** Every read statement passes `sql.ensure_read_only()`
    and must stay a single `SELECT`/`WITH`. The only exceptions are the curated
-   inserts (`POST /clients`, `POST /machines`): they are gated behind
+   writes (`POST /clients`, `POST /machines`, client updates), gated behind
    `api.allow_writes` (`errors.WritesDisabled` → 403), their statements come
-   from `sql.build_insert()`, and they run **only** inside
+   from `sql.build_insert()` / `sql.build_update()`, and they run **only** inside
    `pool.write_session()` - never `pool.session()`, which always rolls back. Do
    not add another write path without the same switch, the same builder and
    explicit tests.
@@ -69,9 +70,9 @@ marker.
 - `ks_adapter/api.py` - routes (`create_router`), `get_service`,
   `require_api_key`.
 - `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging,
-  `create_client()` and `create_machine()` (the only writes).
-- `ks_adapter/sql.py` - read-only guard, `build_insert()`, filters, ordering,
-  `LIKE` search.
+  `create_client()`, `create_machine()` and `update_client()` (curated writes).
+- `ks_adapter/sql.py` - read-only guard, `build_insert()` / `build_update()`,
+  filters, ordering, `LIKE` search.
 - `ks_adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
 - `ks_adapter/pool.py` - thread-safe connection pool (`session()`,
   `write_session()`, `ping()`).
@@ -120,13 +121,15 @@ the variable is public.
    widths as `*_TEXT_LENGTHS`, then normalise the payload with
    `DatabaseService._prepared_insert_values()` (key matching, trimming, blank
    and unknown-field rejection) instead of validating by hand.
-3. Reproduce the row profile the legacy program writes: collect every column
-   value that program puts into new rows (see `CLIENT_INSERT_DEFAULTS`) in a
+3. For inserts, reproduce the row profile the legacy program writes: collect
+   every column value that program puts into new rows (see `CLIENT_INSERT_DEFAULTS`) in a
    `*_INSERT_DEFAULTS` constant and merge it with `_insert_plan()`. A write that
    leaves the Firebird `NULL`s behind produces a row the program does not show,
    even though SQL accepts it.
 4. Build the statement with `sql.build_insert(table, columns, returning=...)`
    and bind every value; never format a value into the SQL.
+   For updates use `sql.build_update()` with a unique key predicate, preserve
+   omitted fields, and never merge insert defaults into the existing row.
 5. Execute it inside `self.pool.write_session()` and only there: it commits on
    success and rolls back on any exception.
 6. Give the offline suite a `_Pool.write_session()` case (`committed` /

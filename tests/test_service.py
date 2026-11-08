@@ -12,6 +12,7 @@ from ks_adapter.errors import (
     ColumnNotFound,
     InvalidRequest,
     QueryNotAllowed,
+    RecordNotFound,
     TableNotFound,
     WritesDisabled,
 )
@@ -1632,3 +1633,85 @@ def test_create_machine_reuses_the_curated_column_lists() -> None:
     assert set(MACHINE_TEXT_LENGTHS) <= set(MACHINE_WRITE_COLUMNS)
     assert len(set(MACHINE_WRITE_COLUMNS)) == len(MACHINE_WRITE_COLUMNS)
 
+
+
+def test_update_client_changes_only_supplied_fields() -> None:
+    row = (5, 4, "ACME", None, "123", "", "Odbiorca", "Gotówka", 14, None)
+    pool = _Pool([(KLIENT_RETURNING, [row])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    result = service.update_client(4, {"Nip": " 123 ", "adres": "  "})
+    returning = ", ".join(f'"{c}"' for c in KLIENT_RETURNING_COLUMNS)
+    assert pool.executed == [(
+        'UPDATE "KLIENT" SET "NIP" = ?, "ADRES" = ? '
+        f'WHERE "ID_KLIENT" = ? RETURNING {returning}',
+        ["123", "", 4],
+    )]
+    assert result["id_klient_table"] == 5
+    assert result["typ"] == "Odbiorca"
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+def test_update_client_preserves_explicit_null() -> None:
+    row = (5, 4, "ACME", None, None, "", "Odbiorca", "Gotówka", 14, None)
+    pool = _Pool([(KLIENT_RETURNING, [row])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    assert service.update_client(4, {"nip": None})["nip"] is None
+    assert pool.executed[0][1] == [None, 4]
+
+
+@pytest.mark.parametrize("row", [None, (None,) * 10])
+def test_update_client_missing_record_rolls_back(row: Any) -> None:
+    pool = _Pool([(KLIENT_RETURNING, [] if row is None else [row])])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(RecordNotFound):
+        service.update_client(999, {"nazwa": "ACME"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("values", [
+    {}, {"nazwa": None}, {"nazwa": " "}, {"nazwa": "x" * 501},
+    {"id_klient": 10}, {"ostatnio": "2026-01-02"}, {"nip": "x" * 21},
+])
+def test_update_client_rejects_invalid_fields(values: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_client(4, values)
+    assert pool.executed == []
+    assert pool.committed == 0
+
+
+def test_update_client_refuses_writes_when_disabled() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE)
+    with pytest.raises(WritesDisabled):
+        service.update_client(4, {"nazwa": "ACME"})
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("key", [0, -1, True, "5"])
+def test_update_client_requires_positive_key(key: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_client(key, {"nazwa": "ACME"})
+    assert pool.executed == []
+
+
+def test_update_client_rejects_columns_missing_from_catalog() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(ColumnNotFound):
+        service.update_client(4, {"telefon": "123"})
+    assert pool.executed == []
+
+
+def test_update_client_rolls_back_database_failure() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, KLIENT_WRITABLE, allow_writes=True)
+    with pytest.raises(IndexError):
+        service.update_client(4, {"nazwa": "ACME"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1

@@ -73,7 +73,7 @@ def build_insert(
 
     Only identifiers are interpolated, and only through :func:`quote_identifier`;
     the values stay ``?`` placeholders that the caller binds separately.  This is
-    the single helper that produces a writing statement - every statement that
+    a helper that produces a writing statement - every statement that
     comes from a request still passes :func:`ensure_read_only`.
 
     ``returning`` appends an ``INSERT ... RETURNING`` column list, so Firebird
@@ -86,6 +86,32 @@ def build_insert(
     placeholders = ", ".join("?" for _ in columns)
     statement = (
         f"INSERT INTO {quote_identifier(table)} ({names}) VALUES ({placeholders})"
+    )
+    if returning:
+        targets = ", ".join(quote_identifier(column) for column in returning)
+        statement = f"{statement} RETURNING {targets}"
+    return statement
+
+
+def build_update(
+    table: str,
+    columns: Sequence[str],
+    *,
+    key: str,
+    returning: Sequence[str] = (),
+) -> str:
+    """Build a parameterised update restricted to one unique key.
+
+    Bind the new values in column order, followed by the record key.
+    """
+    if not columns:
+        raise InvalidRequest("An UPDATE needs at least one column")
+    assignments = ", ".join(
+        f"{quote_identifier(column)} = ?" for column in columns
+    )
+    statement = (
+        f"UPDATE {quote_identifier(table)} SET {assignments} "
+        f"WHERE {quote_identifier(key)} = ?"
     )
     if returning:
         targets = ", ".join(quote_identifier(column) for column in returning)
