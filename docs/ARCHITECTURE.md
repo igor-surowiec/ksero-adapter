@@ -285,7 +285,8 @@ registers the router, enables GET/POST/PATCH/DELETE CORS for configured origins,
 unauthenticated `GET /` liveness route.
 
 **`api.py`** — `create_router(settings)` composes resource routers under the
-configured prefix. It includes `routes.meta` publicly, then includes all data
+configured prefix. It registers the public HTML tester at the exact prefix,
+includes `routes.meta` publicly, then includes all data
 routers with one shared API-key dependency. The `get_service`, `require_api_key`
 and `FILTERS_DESCRIPTION` imports remain available from `ks_adapter.api` for
 existing callers and dependency overrides.
@@ -298,7 +299,7 @@ existing callers and dependency overrides.
 - `orders.py` and `invoices.py` own their curated list endpoints.
 - `database.py` owns table/schema inspection, generic row access, schema refresh
   and read-only SQL queries.
-- `meta.py` owns the public service information and health routes.
+- `meta.py` owns the public HTML tester, service information and health handlers.
 - `common.py` holds `get_service()`, `require_api_key()` (constant-time API-key
   comparison), `page_limit()` and `FILTERS_DESCRIPTION`.
 
@@ -308,6 +309,15 @@ shared pagination limits come from the settings. Response models, paths,
 operation IDs and validation behavior are unchanged by the split. See README
 for the full endpoint list. Tests check API-key enforcement across all composed
 routes, including custom prefixes.
+
+**`static/api_tester.html`** — self-contained HTML/CSS/JavaScript, served with
+`FileResponse` at `GET /api/v1` (or the configured prefix) without database
+access. The trailing-slash URL retains its JSON service information. The page
+loads `/openapi.json`, groups route buttons into resource sections, and builds
+path/query and request-field inputs
+from the schemas; raw JSON supports explicit nulls and arrays. Requests run
+only on submission, use same-origin fetch and the optional in-memory API key,
+and display status and response as text. No build step or dependencies.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →

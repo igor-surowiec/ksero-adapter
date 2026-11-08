@@ -72,6 +72,8 @@ marker.
 ## Layout
 
 - `ks_adapter/api.py` - router composition and shared API-key enforcement.
+- `ks_adapter/static/api_tester.html` - buildless API tester at the exact API
+  prefix; inputs come from OpenAPI and requests run only on submission.
 - `ks_adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
   `machines.py`, `cpc_settlement.py`, `orders.py`, `invoices.py`,
   `database.py`, public `meta.py`); `common.py` holds shared dependencies.

@@ -1220,3 +1220,20 @@ def test_resource_routers_share_authentication_and_keep_metadata_public(
             for method in operations:
                 response = client.request(method.upper(), target)
                 assert response.status_code == (200 if public else 401), (method, path)
+
+
+@pytest.mark.parametrize("prefix", ["/api/v1", "/custom/v2"])
+def test_api_tester_is_html_at_exact_prefix_without_db_access(prefix: str) -> None:
+    service = FakeService()
+    app = create_app(make_settings(prefix=prefix, api_key="secret"), service=service)
+    with TestClient(app) as client:
+        response = client.get(prefix, follow_redirects=False)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert "ks-adapter API tester" in response.text
+        assert 'id="api-key"' in response.text
+        assert 'id="json-body"' in response.text
+        assert 'fetch("/openapi.json")' in response.text
+        assert prefix not in app.openapi()["paths"]
+        assert client.get(prefix + "/").json()["api_prefix"] == prefix
+    assert service.calls == []

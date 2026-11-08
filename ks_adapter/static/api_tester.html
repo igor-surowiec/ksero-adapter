@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ks-adapter API tester</title>
+<style>
+  body { max-width: 960px; margin: 24px auto; padding: 0 16px; font: 15px system-ui, sans-serif; color: #222; }
+  h1 { font-size: 24px; } label { display: block; margin: 12px 0; }
+  input, textarea, button { font: inherit; box-sizing: border-box; }
+  input:not([type=checkbox]), textarea { width: 100%; padding: 8px; border: 1px solid #aaa; border-radius: 4px; }
+  textarea { min-height: 90px; font-family: monospace; }
+  fieldset, details { margin: 16px 0; padding: 12px; border: 1px solid #ccc; border-radius: 4px; }
+  summary { cursor: pointer; } small, .hint { color: #555; }
+  .field { margin: 12px 0; } .field label { margin: 4px 0; }
+  .field small { display: block; margin-top: 4px; }
+  button { padding: 9px 16px; cursor: pointer; } button:disabled { cursor: wait; }
+  pre { background: #f3f3f3; padding: 12px; overflow: auto; max-height: 480px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #status { font-weight: 600; } #description { white-space: pre-wrap; }
+  #routes { border: 0; padding: 0; }
+  #route-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  #route-sections section { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-width: 0; }
+  #route-sections h2 { font-size: 18px; margin: 0 0 10px; }
+  #route-sections button { display: block; width: 100%; text-align: left; margin: 6px 0; overflow-wrap: anywhere; border: 1px solid #aaa; border-radius: 4px; background: white; }
+  #route-sections button[aria-pressed=true] { background: #e7efff; border-color: #2458a6; }
+  #selected-route { font-size: 20px; overflow-wrap: anywhere; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>ks-adapter API tester</h1>
+<p>Choose a route from a resource section, fill its inputs below, then send one request. Writes use the server's normal write-enable setting.</p>
+<p><a href="/docs">Swagger docs</a> &middot; <a href="/openapi.json">OpenAPI JSON</a></p>
+<label>API key (X-API-Key; optional)
+  <input id="api-key" type="password" autocomplete="off" placeholder="Enter API key if configured">
+</label>
+<fieldset id="routes" disabled>
+  <legend>API routes by resource</legend>
+  <div id="route-sections">Loading routes...</div>
+</fieldset>
+<form id="request-form" novalidate>
+  <h2 id="selected-route">Request</h2>
+  <p id="description" class="hint"></p>
+  <fieldset id="parameters" hidden><legend>Path and query inputs</legend><div id="parameter-fields"></div></fieldset>
+  <fieldset id="body-section" hidden>
+    <legend>Request body</legend>
+    <p class="hint">Fill fields below or edit the JSON directly. Checked fields are included; unchecked fields are omitted. Use JSON null to clear nullable fields.</p>
+    <div id="required-fields"></div>
+    <details id="optional-fields"><summary>Optional fields</summary><div id="optional-field-inputs"></div></details>
+    <label>JSON body (editable; changing a field rebuilds it)
+      <textarea id="json-body" spellcheck="false" placeholder="Optional JSON body"></textarea>
+    </label>
+  </fieldset>
+  <button id="send" type="submit" disabled>Send request</button>
+  <button id="cancel" type="button" hidden>Cancel</button>
+</form>
+<p id="status" role="status" aria-live="polite">Loading OpenAPI...</p>
+<pre id="request-preview" hidden></pre>
+<pre id="response" tabindex="0">No request sent.</pre>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const prefix = window.location.pathname.replace(/\/$/, "");
+let spec, operations = [], parameters = [], fields = [], current, controller;
+
+function resolve(schema = {}) {
+  if (schema.$ref) schema = spec.components.schemas[schema.$ref.split("/").pop()];
+  const variants = schema.anyOf || schema.oneOf;
+  if (variants) {
+    const choices = variants.filter(item => item.type !== "null");
+    if (choices.some(item => item.type === "number") && choices.some(item => item.type === "string")) {
+      return {...schema, type: "string", format: "decimal"};
+    }
+    return {...schema, ...resolve(choices[0] || {})};
+  }
+  return schema;
+}
+
+function valueInput(schema, id) {
+  const input = document.createElement(schema.type === "array" || schema.type === "object" ? "textarea" : "input");
+  input.id = id;
+  if (input.tagName === "INPUT") {
+    input.type = schema.format === "date" ? "date" : "text";
+    if (["integer", "number"].includes(schema.type) || schema.format === "decimal") input.inputMode = "decimal";
+  }
+  input.placeholder = schema.type === "array" ? "[]" : schema.type === "object" ? "{}" : schema.type === "boolean" ? "true or false" : "";
+  if (schema.default !== undefined && schema.default !== null) input.placeholder = String(schema.default);
+  return input;
+}
+
+function readValue(input, schema) {
+  const text = input.value;
+  if (schema.type === "array" || schema.type === "object" || schema.type === "boolean") return JSON.parse(text);
+  if (schema.type === "integer" || schema.type === "number") {
+    const number = Number(text);
+    if (!Number.isFinite(number)) throw new Error("Invalid number in " + input.id);
+    return number;
+  }
+  return text;
+}
+
+function rebuildBody() {
+  try {
+    const body = {};
+    for (const field of fields) {
+      if (!field.include.checked) continue;
+      if (!field.input.value && field.schema.type !== "string") continue;
+      body[field.name] = readValue(field.input, field.schema);
+    }
+    $("json-body").value = Object.keys(body).length || current.operation.requestBody.required ? JSON.stringify(body, null, 2) : "";
+    $("status").textContent = "Ready. Send runs only the selected route.";
+  } catch (error) { $("status").textContent = error.message; }
+}
+
+function renderRoute(route) {
+  current = route;
+  $("selected-route").textContent = current.method + " " + current.path;
+  for (const button of $("route-sections").querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.route === current));
+  }
+  $("request-preview").hidden = true;
+  $("response").textContent = "No request sent for this route.";
+  parameters = []; fields = [];
+  for (const id of ["parameter-fields", "required-fields", "optional-field-inputs"]) $(id).replaceChildren();
+  $("description").textContent = [current.operation.summary, current.operation.description].filter(Boolean).join("\n");
+  $("send").textContent = "Send " + current.method + " request";
+  for (const parameter of current.operation.parameters || []) {
+    if (parameter.in === "header") continue; // API key has its own password input.
+    const label = document.createElement("label");
+    label.textContent = parameter.name + " (" + parameter.in + ")" + (parameter.required ? " *" : "");
+    const schema = resolve(parameter.schema);
+    const input = valueInput(schema, "param-" + parameter.name);
+    input.title = parameter.description || "";
+    label.append(input); $("parameter-fields").append(label);
+    parameters.push({...parameter, schema, input});
+  }
+  $("parameters").hidden = parameters.length === 0;
+  const body = current.operation.requestBody;
+  $("body-section").hidden = !body;
+  $("optional-fields").open = false;
+  $("json-body").value = body && body.required ? "{}" : "";
+  if (body) {
+    const schema = resolve(body.content["application/json"].schema);
+    const required = new Set(schema.required || []);
+    for (const [name, raw] of Object.entries(schema.properties || {})) {
+      const type = resolve(raw), container = document.createElement("div"), label = document.createElement("label");
+      const include = document.createElement("input"); include.type = "checkbox"; include.checked = required.has(name);
+      include.setAttribute("aria-label", "Include " + name);
+      const input = valueInput(type, "body-" + name);
+      label.htmlFor = input.id; label.append(include, " " + name + (required.has(name) ? " *" : "") + " (" + (type.type || "JSON") + ")");
+      container.className = "field"; container.append(label, input);
+      if (raw.description) { const hint = document.createElement("small"); hint.textContent = raw.description; container.append(hint); }
+      $(required.has(name) ? "required-fields" : "optional-field-inputs").append(container);
+      fields.push({name, schema: type, include, input});
+      input.addEventListener("input", () => { include.checked = true; rebuildBody(); });
+      include.addEventListener("change", rebuildBody);
+    }
+    $("optional-fields").hidden = !$("optional-field-inputs").children.length;
+  }
+  $("status").textContent = "Ready. Send runs only the selected route.";
+}
+
+$("cancel").addEventListener("click", () => controller && controller.abort());
+$("request-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!current) return;
+  try {
+    let path = current.path;
+    const query = new URLSearchParams();
+    for (const parameter of parameters) {
+      if (!parameter.input.value) {
+        if (parameter.required) throw new Error("Enter " + parameter.name);
+        continue;
+      }
+      if (parameter.in === "path") path = path.replace("{" + parameter.name + "}", encodeURIComponent(parameter.input.value));
+      else if (parameter.in === "query") query.set(parameter.name, parameter.input.value);
+    }
+    const url = path + (query.size ? "?" + query.toString() : "");
+    const headers = {Accept: "application/json"};
+    if ($("api-key").value) headers["X-API-Key"] = $("api-key").value;
+    const options = {method: current.method, headers};
+    const body = current.operation.requestBody && $("json-body").value.trim();
+    if (body) { JSON.parse(body); options.body = body; headers["Content-Type"] = "application/json"; }
+    controller = new AbortController(); options.signal = controller.signal;
+    $("send").disabled = true; $("routes").disabled = true; $("cancel").hidden = false;
+    $("status").textContent = "Sending...";
+    $("request-preview").hidden = false;
+    $("request-preview").textContent = current.method + " " + url + (body ? "\n\n" + body : "");
+    const start = performance.now(), result = await fetch(url, options), text = await result.text();
+    $("status").textContent = result.status + " " + result.statusText + " - " + Math.round(performance.now() - start) + " ms";
+    try { $("response").textContent = JSON.stringify(JSON.parse(text), null, 2); }
+    catch { $("response").textContent = text || "(empty response)"; }
+  } catch (error) {
+    $("status").textContent = error.name === "AbortError" ? "Request cancelled." : error.message;
+  } finally {
+    controller = null; $("send").disabled = false; $("routes").disabled = false; $("cancel").hidden = true;
+  }
+});
+
+(async () => {
+  try {
+    const response = await fetch("/openapi.json");
+    if (!response.ok) throw new Error("Cannot load OpenAPI: " + response.status);
+    spec = await response.json();
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      if (!path.startsWith(prefix + "/")) continue;
+      for (const [method, operation] of Object.entries(methods)) {
+        if (["get", "post", "patch", "delete"].includes(method)) operations.push({path, method: method.toUpperCase(), operation});
+      }
+    }
+    if (!operations.length) throw new Error("No API routes found for " + prefix);
+    const groups = new Map([
+      ["clients", "Clients"], ["agreements", "Agreements"],
+      ["machines", "Machines"], ["cpc-settlement", "CPC settlements"],
+      ["orders", "Orders"], ["invoices", "Invoices"],
+      ["database", "Database and schema"], ["meta", "Service"]
+    ]);
+    const sections = new Map();
+    $("route-sections").replaceChildren();
+    for (const [key, title] of groups) {
+      const section = document.createElement("section"), heading = document.createElement("h2");
+      heading.textContent = title; section.append(heading);
+      sections.set(key, section); $("route-sections").append(section);
+    }
+    for (const route of operations) {
+      const resource = route.path.slice(prefix.length + 1).split("/")[0];
+      const key = groups.has(resource) ? resource : ["tables", "schema", "query"].includes(resource) ? "database" : "meta";
+      const button = document.createElement("button");
+      button.type = "button"; button.textContent = route.method + " " + route.path;
+      button.route = route;
+      button.addEventListener("click", () => renderRoute(route));
+      sections.get(key).append(button);
+    }
+    for (const section of sections.values()) if (section.children.length === 1) section.remove();
+    $("routes").disabled = false; $("send").disabled = false;
+    renderRoute(operations.find(route => route.path === prefix + "/clients" && route.method === "GET") || operations[0]);
+  } catch (error) { $("status").textContent = error.message; }
+})();
+</script>
+</body>
+</html>

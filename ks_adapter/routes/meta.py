@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 
 from ..config import AppSettings
 from ..schemas.meta import HealthResponse, ServiceInfo
 from ..service import DatabaseService
 from .common import get_service
+
+
+def api_tester() -> FileResponse:
+    """Serve the buildless API tester without accessing the database."""
+    path = Path(__file__).resolve().parent.parent / "static" / "api_tester.html"
+    return FileResponse(
+        path, media_type="text/html", headers={"Cache-Control": "no-store"}
+    )
 
 
 def create_router(settings: AppSettings) -> APIRouter:

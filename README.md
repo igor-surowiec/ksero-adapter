@@ -48,8 +48,19 @@ and a relative `database.path` is resolved against the project root (so
 
 Routes live under `api.prefix` (`/api/v1`).
 
+Open `GET /api/v1` in a browser for a simple API tester. It lists all API
+routes from OpenAPI in resource sections (clients, agreements, machines, etc.)
+and provides inputs for path IDs, query parameters and
+request fields, plus an editable JSON body for arrays or explicit `null`.
+Enter the configured API key once; it stays in memory for the open page.
+Only clicking Send runs a request, and the page shows its status and response.
+Write requests use the normal write-enable setting. Custom API prefixes work
+the same way. The existing `GET /api/v1/` still returns JSON service information.
+
 | Method | Path | Returns |
 | --- | --- | --- |
+| `GET` | exact prefix (no trailing slash) | HTML API tester (no API key) |
+| `GET` | `/` | JSON service information (no API key) |
 | `GET` | `/health` | database ping and pool statistics (no API key) |
 | `GET` | `/tables` | user tables and views |
 | `GET` | `/tables/{table}` | columns with readable SQL types |
