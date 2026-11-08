@@ -8,7 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ks_adapter.app import create_app
-from ks_adapter.errors import InvalidRequest, RecordNotFound, WritesDisabled
+from ks_adapter.errors import (
+    InvalidRequest,
+    RecordConflict,
+    RecordNotFound,
+    WritesDisabled,
+)
 
 from .conftest import FakeService, make_settings
 
@@ -930,3 +935,58 @@ def test_create_agreement_validates_client_path(client: TestClient, key: str) ->
 
 def test_create_agreement_old_post_route_is_removed(client: TestClient) -> None:
     assert client.post("/api/v1/agreements", json={"id_klient": 42}).status_code == 405
+
+
+def test_update_machine_returns_stored_projection(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.patch("/api/v1/machines/4", json={"serial": None})
+    assert response.status_code == 200
+    assert response.json()["id_maszyna"] == 4
+    assert fake_service.calls[-1] == {
+        "action": "update_machine", "id_maszyna": 4, "values": {"serial": None},
+    }
+
+
+@pytest.mark.parametrize("payload", [
+    {"id_maszyna": 1}, {"synwp": 1}, {"licznik_total": 1},
+    {"serial": "x" * 101}, {"instalacja": "invalid"}, {"id_klient": -1},
+])
+def test_update_machine_rejects_invalid_payload(
+    client: TestClient, payload: dict[str, Any],
+) -> None:
+    assert client.patch("/api/v1/machines/4", json=payload).status_code == 422
+
+
+def test_update_machine_authentication() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        url = "/api/v1/machines/4"
+        assert client.patch(url, json={"marka": "KONICA"}).status_code == 401
+        assert client.patch(
+            url, json={"marka": "KONICA"}, headers={"X-API-Key": "secret"},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/machines/0", json={"marka": "KONICA"},
+            headers={"X-API-Key": "secret"},
+        ).status_code == 422
+
+
+@pytest.mark.parametrize("error, status", [
+    (WritesDisabled("Writes disabled"), 403),
+    (InvalidRequest("Empty update"), 400),
+    (RecordNotFound("Machine not found"), 404),
+    (RecordConflict("Multiple machines"), 409),
+])
+def test_update_machine_reports_domain_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def update_machine(
+            self, id_maszyna: int, values: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            raise error
+
+    app = create_app(make_settings(), service=FailingService())
+    with TestClient(app) as client:
+        response = client.patch("/api/v1/machines/4", json={"marka": "KONICA"})
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__

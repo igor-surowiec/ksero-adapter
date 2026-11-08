@@ -59,3 +59,9 @@ class RecordNotFound(AdapterError):
     """The requested record does not exist."""
 
     status_code = 404
+
+
+class RecordConflict(AdapterError):
+    """The identifier matches more than one record."""
+
+    status_code = 409

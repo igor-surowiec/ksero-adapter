@@ -12,6 +12,7 @@ from ks_adapter.errors import (
     ColumnNotFound,
     InvalidRequest,
     QueryNotAllowed,
+    RecordConflict,
     RecordNotFound,
     TableNotFound,
     WritesDisabled,
@@ -1973,3 +1974,119 @@ def test_create_agreement_preserves_supplied_date_and_active_flag() -> None:
     assert pool.executed[1][1] == [1, 7, start, "NIE"]
     assert result["u_start"] == "2027-01-15"
     assert result["aktywna"] == "NIE"
+
+
+def test_update_machine_updates_only_supplied_fields() -> None:
+    pool = _Pool([(None, [(1,)]),
+                  (MASZYNA_RETURNING, [(11, 4, 0, "KONICA", "", None, None)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    result = service.update_machine(4, {"id_klient": 0, "Serial": " "})
+    assert pool.executed == [
+        ('SELECT FIRST 2 1 FROM "MASZYNA" WHERE "ID_MASZYNA" = ?', [4]),
+        ('UPDATE "MASZYNA" SET "ID_KLIENT" = ?, "SERIAL" = ? '
+         'WHERE "ID_MASZYNA" = ? RETURNING "ID_MASZYNA_TABLE", "ID_MASZYNA", '
+         '"ID_KLIENT", "MARKA", "SERIAL", "INSTALACJA", "OPLATA"', [0, "", 4]),
+    ]
+    assert result["id_maszyna_table"] == 11
+    assert result["id_maszyna"] == 4
+    assert result["marka"] == "KONICA"
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+def test_update_machine_preserves_explicit_null_for_nullable_field() -> None:
+    pool = _Pool([(None, [(1,)]),
+                  (MASZYNA_RETURNING, [(11, 4, 7, None, None, None, None)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    assert service.update_machine(4, {"marka": None})["marka"] is None
+    assert pool.executed[1][1] == [None, 4]
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"id_klient": None}, {"id_klient": -1}, {"id_klient": True},
+    {"id_maszyna": 1}, {"licznik_total": 1}, {"synwp": 1},
+    {"serial": "x" * 101},
+])
+def test_update_machine_rejects_invalid_fields(payload: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_machine(4, payload)
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("key", [0, -1, True, "4"])
+def test_update_machine_rejects_invalid_identifier(key: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_machine(key, {"marka": "KONICA"})
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("row", [None, (None,) * 7])
+def test_update_machine_missing_record_rolls_back(row: Any) -> None:
+    pool = _Pool([(None, []), (None, [] if row is None else [row])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(RecordNotFound):
+        service.update_machine(4, {"marka": "KONICA"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_update_machine_rejects_duplicate_business_ids() -> None:
+    pool = _Pool([(None, [(1,), (1,)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(RecordConflict):
+        service.update_machine(4, {"marka": "KONICA"})
+    assert len(pool.executed) == 1
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_update_machine_rolls_back_database_failure() -> None:
+    pool = _Pool([(None, [(1,)])])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(IndexError):
+        service.update_machine(4, {"marka": "KONICA"})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+def test_update_machine_requires_write_permission() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE)
+    with pytest.raises(WritesDisabled):
+        service.update_machine(4, {"marka": "KONICA"})
+    assert pool.executed == []
+
+
+def test_update_machine_rejects_missing_catalog_field() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
+    with pytest.raises(ColumnNotFound):
+        service.update_machine(4, {"model": "C224"})
+    assert pool.executed == []
+
+
+def test_update_machine_rejects_null_for_non_nullable_catalog_column() -> None:
+    pool = _Pool([])
+    table = TableInfo("MASZYNA", "table", None, (
+        *MASZYNA_WRITABLE.columns, ColumnInfo("ID_ODDZIAL", 20, "INTEGER", False),
+    ))
+    service = make_projection_service(pool, table, allow_writes=True)
+    with pytest.raises(InvalidRequest, match="id_oddzial.*must not be null"):
+        service.update_machine(4, {"id_oddzial": None})
+    assert pool.executed == []
+
+
+def test_update_machine_requires_business_identifier_column() -> None:
+    pool = _Pool([])
+    table = TableInfo("MASZYNA", "table", None, (
+        ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+        ColumnInfo("MARKA", 1, "VARCHAR(100)", True),
+    ))
+    service = make_projection_service(pool, table, allow_writes=True)
+    with pytest.raises(InvalidRequest, match="no ID_MASZYNA key"):
+        service.update_machine(4, {"marka": "KONICA"})
+    assert pool.executed == []

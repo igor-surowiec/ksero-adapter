@@ -13,6 +13,7 @@ from .errors import (
     ColumnNotFound,
     DatabaseUnavailable,
     InvalidRequest,
+    RecordConflict,
     RecordNotFound,
     WritesDisabled,
 )
@@ -1134,6 +1135,63 @@ class DatabaseService:
         return self._write_row(
             info.name, selected, statement, params
         )
+
+    def update_machine(
+        self, id_maszyna: int, values: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Update supplied machine fields by business ID; reject ambiguous IDs."""
+        self._require_writes()
+        if (
+            not isinstance(id_maszyna, int)
+            or isinstance(id_maszyna, bool)
+            or id_maszyna < 1
+        ):
+            raise InvalidRequest("'id_maszyna' must be a positive integer")
+        prepared = self._prepared_write_values(
+            values, MACHINE_WRITE_COLUMNS, MACHINE_TEXT_LENGTHS, preserve_empty=True
+        )
+        if not prepared:
+            raise InvalidRequest("Supply at least one machine field to update")
+        if "ID_KLIENT" in prepared:
+            owner = prepared["ID_KLIENT"]
+            if not isinstance(owner, int) or isinstance(owner, bool) or owner < 0:
+                raise InvalidRequest("'id_klient' must be a non-negative integer")
+        info = self.schema.get(MACHINES_TABLE)
+        key = info.column_map.get("ID_MASZYNA")
+        if key is None:
+            raise InvalidRequest("Machine table has no ID_MASZYNA key")
+        for column, value in prepared.items():
+            if column not in info.column_map:
+                raise ColumnNotFound(f"Column '{column}' does not exist")
+            if value is None and not next(
+                c.nullable for c in info.columns if c.name == info.column_map[column]
+            ):
+                raise InvalidRequest(f"'{column.lower()}' must not be null")
+        selected = [c for c in MACHINE_COLUMNS if c in info.column_map]
+        statement = build_update(
+            info.name, [info.column_map[c] for c in prepared], key=key,
+            returning=[info.column_map[c] for c in selected],
+        )
+        with self.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    f"SELECT FIRST 2 1 FROM {quote_identifier(info.name)} "
+                    f"WHERE {quote_identifier(key)} = ?", [id_maszyna],
+                )
+                if len(cursor.fetchall()) > 1:
+                    raise RecordConflict(
+                        f"Multiple machines have id_maszyna {id_maszyna}"
+                    )
+                cursor.execute(statement, [*prepared.values(), id_maszyna])
+                row = cursor.fetchone()
+                if row is None or all(value is None for value in row):
+                    raise RecordNotFound(
+                        f"Machine with id_maszyna {id_maszyna} not found"
+                    )
+                return self._serialize_row([c.lower() for c in selected], row)
+            finally:
+                cursor.close()
 
     # -- helpers ----------------------------------------------------------
     @staticmethod

@@ -4,7 +4,7 @@ HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.
 `WIN1250` data).
 
 Requests use quoted identifiers, bound parameters and capped read results. Reads never modify anything; the only writes
-are curated client/machine/agreement inserts and client updates/deletions, off
+are curated client/machine/agreement inserts and client/machine updates and client deletions, off
 unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
 the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -34,7 +34,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -61,6 +61,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `POST` | `/agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
+| `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 | `POST` | `/schema/refresh` | drop and reload the schema cache |
@@ -173,6 +174,23 @@ unknown field name answers `422` instead of being dropped silently. Columns the
 application derives from other data (`licznik_total`, `last_m`, `last_w`,
 `next_w`, `koszty`, `przychody`, `wynik`, `synwp`) cannot be written.
 
+`PATCH /machines/{id_maszyna}` updates an existing machine by `ID_MASZYNA`
+(the business identifier returned by `GET /machines`). It accepts the same
+writable fields as `POST /machines`, all optional. Only supplied fields change;
+omitted fields and defaults remain untouched. Strings are trimmed; `""` clears
+text and `null` clears nullable fields. Set `id_klient` to `0` to unassign the
+machine; null is rejected for ownership and other non-nullable columns.
+Generated keys and derived fields remain read-only. Empty updates return `400`,
+unknown or invalid fields `422`, missing machines `404`, and ambiguous business
+IDs `409` (the database does not enforce uniqueness of `ID_MASZYNA`). Successful
+updates return the stored `Machine` projection with `200`. Existing database
+update triggers run normally, including propagation of machine details to
+related orders. Requires writes enabled and the configured API key.
+
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/v1/machines/4 -H 'Content-Type: application/json' -d '{"model": "C224", "serial": "SN-0002"}'
+```
+
 ```bash
 curl 'http://127.0.0.1:8000/api/v1/tables/KLIENCI/rows?limit=25&order_by=NAZWA%20ASC&filters={"TYP":1}'
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
@@ -204,7 +222,7 @@ caps rows at `api.max_query_rows` and reports `truncated`.
 ```
 
 `400` invalid request or forbidden SQL, `401` missing/invalid `X-API-Key`,
-`403` writes disabled (`api.allow_writes` off), `404` unknown table or client record, `422`
+`409` ambiguous machine identifier, `403` writes disabled (`api.allow_writes` off), `404` unknown table or client record, `422`
 validation, `500`/`503` database failure. When `api.api_key` is set, send it as
 `X-API-Key` on every route except `/health`.
 

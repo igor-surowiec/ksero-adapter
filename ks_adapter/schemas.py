@@ -517,6 +517,19 @@ class MachineCreate(BaseModel):
     )
 
 
+class MachineUpdate(MachineCreate):
+    """Partial machine update; omitted fields keep their stored values.
+
+    Null clears nullable fields; id_klient=0 unassigns the owner. Non-nullable
+    ownership/branch fields must have a value when supplied.
+    """
+
+    id_klient: int | None = Field(
+        default=None, ge=0,
+        description="Owner ID; 0 unassigns, null is rejected on update",
+    )
+
+
 class Order(BaseModel):
     """A service order (job) stored in the ``ZLECENIE`` table."""
 

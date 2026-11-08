@@ -770,3 +770,88 @@ def test_create_agreement_defaults_match_legacy_reference(
         if agreement is not None:
             delete_agreement(write_service, agreement["id_umowacpc_table"])
         delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_update_machine_endpoint_preserves_omitted_fields(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER MACHINE PATCH TEST"})
+    machine = None
+    try:
+        machine = write_service.create_machine({
+            "id_klient": owner["id_klient"], "marka": "KS ADAPTER PATCH TEST",
+            "model": "BEFORE", "serial": "SN TEST",
+        })
+        app = create_app(write_service.settings, service=write_service)
+        url = f"/api/v1/machines/{machine['id_maszyna']}"
+        with TestClient(app) as client:
+            response = client.patch(url, json={"model": " AFTER ", "serial": " "})
+            assert response.status_code == 200
+            updated = response.json()
+            assert updated["model"] == "AFTER"
+            assert updated["serial"] == ""
+            for field in machine.keys() - {"model", "serial"}:
+                assert updated[field] == machine[field]
+            response = client.patch(url, json={"id_klient": 0, "serial": None})
+            assert response.status_code == 200
+            assert response.json()["id_klient"] == 0
+            assert response.json()["serial"] is None
+            assert client.patch(url, json={"id_klient": None}).status_code == 400
+            assert client.patch(url, json={"id_oddzial": None}).status_code == 400
+            assert client.patch(url, json={}).status_code == 400
+        stored = write_service.fetch_rows("MASZYNA", filters=json.dumps({
+            "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+        }))["rows"][0]
+        assert stored["MODEL"] == "AFTER"
+        assert stored["SERIAL"] is None
+        assert stored["ID_KLIENT"] == 0
+    finally:
+        if machine is not None:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+    with pytest.raises(RecordNotFound):
+        write_service.update_machine(machine["id_maszyna"], {"model": "MISSING"})
+
+
+@requires_writable
+def test_update_machine_rejects_ambiguous_id_over_http(
+    write_service: DatabaseService,
+) -> None:
+    from ks_adapter.sql import build_update
+
+    machines = []
+    try:
+        for model in ("FIRST", "SECOND"):
+            machines.append(write_service.create_machine({"model": model}))
+        with write_service.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(build_update(
+                    "MASZYNA", ["ID_MASZYNA"], key="ID_MASZYNA_TABLE",
+                ), [machines[0]["id_maszyna"], machines[1]["id_maszyna_table"]])
+            finally:
+                cursor.close()
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.patch(
+                f"/api/v1/machines/{machines[0]['id_maszyna']}",
+                json={"model": "SHOULD NOT CHANGE"},
+            )
+        assert response.status_code == 409
+        assert response.json()["error"] == "RecordConflict"
+        for machine in machines:
+            stored = write_service.fetch_rows("MASZYNA", filters=json.dumps({
+                "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+            }))["rows"][0]
+            assert stored["MODEL"] == machine["model"]
+    finally:
+        for machine in machines:
+            delete_machine(write_service, machine["id_maszyna_table"])
+
+
+def test_update_machine_is_refused_without_allow_writes(
+    service: DatabaseService,
+) -> None:
+    with pytest.raises(WritesDisabled):
+        service.update_machine(1, {"model": "BLOCKED"})

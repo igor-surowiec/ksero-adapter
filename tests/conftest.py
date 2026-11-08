@@ -173,6 +173,17 @@ class FakeService:
             "serial": values.get("serial"),
         }
 
+    def update_machine(
+        self, id_maszyna: int, values: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        self.calls.append({
+            "action": "update_machine", "id_maszyna": id_maszyna,
+            "values": dict(values),
+        })
+        return to_jsonable({
+            "id_maszyna_table": 2001, "id_maszyna": id_maszyna, **values,
+        })
+
     def fetch_agreements(
         self,
         *,

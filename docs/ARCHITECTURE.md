@@ -4,7 +4,8 @@
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
 read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`,
-`PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`)
+`PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
+`DELETE /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
 The document has two parts — **the flow of a request** and **what every file does** —
@@ -170,6 +171,17 @@ missing records (including Firebird's NULL-filled RETURNING tuple) raise
 `RecordNotFound` inside the transaction and roll back. Successful updates return
 the client projection with `200`. Insert defaults are never merged into updates.
 
+`PATCH /machines/{id_maszyna}` passes only explicitly supplied `MachineUpdate`
+fields to `update_machine()`. The service enforces the write gate, a positive
+business ID, `MACHINE_WRITE_COLUMNS`, text widths and catalog nullability.
+`id_klient=0` unassigns ownership; null is invalid for non-nullable columns.
+Inside one `write_session()`, a bound `SELECT FIRST 2` checks whether the
+business ID is ambiguous (`RecordConflict`, `409`), since the database does not
+constrain it to be unique. A parameterised `build_update()` with `RETURNING`
+changes supplied columns only. Missing records raise `RecordNotFound` (`404`);
+errors roll back. Successful responses are the stored `Machine` with `200`.
+Existing update triggers, including propagation to related orders, still run.
+
 `DELETE /clients/{id_klient}` calls `DatabaseService.delete_client()` with a
 positive business identifier. The service enforces `_require_writes()`, resolves
 the key through the catalog and uses `sql.build_delete()` to produce
@@ -187,6 +199,7 @@ and contacts within the same transaction. The route returns an empty `204`.
 | `service.py` (writes) | `WritesDisabled` | `403` |
 | `schema.py` | `TableNotFound` | `404` |
 | `service.py` | `RecordNotFound` | `404` |
+| `service.py` | `RecordConflict` | `409` |
 | `pool.py`, `schema.py` | `DatabaseUnavailable` | `503` |
 | request/response models | Pydantic `ValidationError` | `422` |
 | anywhere | uncaught `fdb.Error` | `500` (traceback logged) |
@@ -226,7 +239,7 @@ unauthenticated `GET /` liveness route.
 Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
 `POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
 `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`,
-`GET /agreements`, `POST /agreements/{id_klient}`, `GET /machines`, `POST /machines`, `GET /orders`,
+`GET /agreements`, `POST /agreements/{id_klient}`, `GET /machines`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `GET /orders`,
 `GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
 first two is protected by the shared `protected` dependency list. Parameter bounds
 are generated from the settings; handlers return plain dicts and the declared
@@ -289,7 +302,7 @@ pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
 `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`,
-`delete_client()`,
+`delete_client()`, `update_machine()`,
 `run_query()`, plus the helpers `check_limit()`,
 `_order_clause()`, `_projection_page()`, `_default_order_clause()`,
 `_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
@@ -340,7 +353,7 @@ they belong to the program's clock and data version.
 `ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
 columns, unknown fields rejected),
 `Agreement`/`AgreementPage`, `AgreementCreate` (optional details; client ID in the URL),
-`Machine`/`MachinePage`, `MachineCreate` (the
+`Machine`/`MachinePage`, `MachineUpdate` (partial machine update), `MachineCreate` (the
 `POST /machines` body: all machine columns optional; `id_klient` defaults to `0`, unknown fields
 rejected), `Order`/`OrderPage`,
 `Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`. Projection

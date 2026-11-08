@@ -22,6 +22,7 @@ from .schemas import (
     Machine,
     MachineCreate,
     MachinePage,
+    MachineUpdate,
     OrderPage,
     QueryRequest,
     QueryResponse,
@@ -377,6 +378,31 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.create_machine(payload.model_dump(exclude_none=True))
+
+    @router.patch(
+        "/machines/{id_maszyna}",
+        response_model=Machine,
+        tags=["data"],
+        summary="Update a machine (installed device)",
+        description=(
+            "Updates only supplied fields, identified by ID_MASZYNA. "
+            "Omitted fields stay unchanged. Null clears nullable fields; "
+            "blank strings clear text fields. Set id_klient to 0 to unassign "
+            "the owner; null is invalid for non-nullable columns. "
+            "Generated keys and derived fields cannot be changed. Returns "
+            "404 if missing, 409 if the business ID matches multiple records. "
+            "Requires api.allow_writes and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def update_machine(
+        payload: MachineUpdate,
+        id_maszyna: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.update_machine(
+            id_maszyna, payload.model_dump(exclude_unset=True)
+        )
 
     @router.get(
         "/orders",
