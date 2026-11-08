@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 from ..config import AppSettings
-from ..schemas import HealthResponse, ServiceInfo
+from ..schemas.meta import HealthResponse, ServiceInfo
 from ..service import DatabaseService
 from .common import get_service
 

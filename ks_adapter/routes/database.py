@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from ..config import AppSettings
-from ..schemas import (
+from ..schemas.database import (
     QueryRequest,
     QueryResponse,
     RowPage,

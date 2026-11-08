@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, status
 
 from ..config import AppSettings
-from ..schemas import (
+from ..schemas.agreements import (
     Agreement,
     AgreementCreate,
     AgreementPage,

@@ -366,7 +366,9 @@ they need the extra opt-in variable.
 config/config.yaml   # configuration (env placeholders + defaults)
 ks_adapter/api.py   # API router composition and authentication wiring
 ks_adapter/routes/  # routes grouped by resource; common.py holds shared dependencies
-ks_adapter/         # application, service, pool, SQL and models
+ks_adapter/service/ # database operations by resource; shared base and facade
+ks_adapter/schemas/ # request/response models by resource; compatible re-exports
+ks_adapter/         # application, pool, SQL, configuration and serialization
 docs/ARCHITECTURE.md # program flow and file-by-file reference
 tests/               # pytest suite (unit, API, opt-in integration)
 ```

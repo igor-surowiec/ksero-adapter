@@ -67,7 +67,7 @@ uvicorn (ASGI)                     worker thread (every endpoint is a sync `def`
    │                                                │
    │                                        serialization.to_jsonable / serialize_rows
    │                                                │
-   │                                        Pydantic response_model (schemas.py)
+   │                                        Pydantic response_model (schemas/)
    ▼                                                │
 response ◄──────────────────────────────────────────┘
 ```
@@ -79,7 +79,7 @@ response ◄──────────────────────�
   guard that is what keeps every read read-only. `pool.write_session()` (used by curated writes) commits on success and rolls back on any
   exception.
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
-  user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
+  user value is a bound parameter. SQL text is built only in `sql.py`/`service/`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
   (`/tables/...`, `/clients`, `/agreements`, `/machines`, `/orders`, `/invoices`);
   `/health` and `/query` skip it.
@@ -245,12 +245,12 @@ isolated parents and verify totals across insertion, update and deletion.
 
 | Raised in | Type | HTTP |
 | --- | --- | --- |
-| `sql.py`, `service.py` | `InvalidRequest`, `QueryNotAllowed`, `ColumnNotFound` | `400` |
+| `sql.py`, `service/` | `InvalidRequest`, `QueryNotAllowed`, `ColumnNotFound` | `400` |
 | `routes/common.py` | `AuthenticationError` | `401` |
-| `service.py` (writes) | `WritesDisabled` | `403` |
+| `service/` (writes) | `WritesDisabled` | `403` |
 | `schema.py` | `TableNotFound` | `404` |
-| `service.py` | `RecordNotFound` | `404` |
-| `service.py` | `RecordConflict` | `409` |
+| `service/` | `RecordNotFound` | `404` |
+| `service/` | `RecordConflict` | `409` |
 | `pool.py`, `schema.py` | `DatabaseUnavailable` | `503` |
 | request/response models | Pydantic `ValidationError` | `422` |
 | anywhere | uncaught `fdb.Error` | `500` (traceback logged) |
@@ -361,29 +361,29 @@ list instead of letting the server answer `-204 Implementation limit exceeded`.
 non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`),
 `row_to_dict()`, `serialize_rows()`.
 
-**`service.py`** — `DatabaseService`, the only class the API layer talks to; it owns the
-pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
-`describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
-`fetch_cpc()`, `get_cpc()`, `create_cpc()`, `update_cpc()`, `delete_cpc()`,
-`fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
-`create_client()`, `create_machine()`, `create_agreement()`, `update_client()`,
-`delete_client()`, `update_machine()`, `update_agreement()`,
-`run_query()`, plus the helpers `check_limit()`,
-`_order_clause()`, `_projection_page()`, `_default_order_clause()`,
-`_check_parameters()`, `_write_row()`, `_serialize_row()`, `_require_writes()`
-and `_prepared_write_values()`, plus the
-module-level `_insert_plan()` that merges a payload with the legacy default profile.
-constants define the curated read models:
-`CLIENTS_TABLE`/`CLIENT_COLUMNS` + `CLIENT_SEARCH_COLUMNS`,
-`AGREEMENTS_TABLE`/`AGREEMENT_COLUMNS` + `AGREEMENT_SEARCH_COLUMNS`,
-`MACHINES_TABLE`/`MACHINE_COLUMNS` + `MACHINE_SEARCH_COLUMNS`,
-`ORDERS_TABLE`/`ORDER_COLUMNS` + `ORDER_SEARCH_COLUMNS`,
-`INVOICES_TABLE`/`INVOICE_COLUMNS` + `INVOICE_SEARCH_COLUMNS`. Each is a small hand-picked
-subset of the table's columns, which keeps the endpoint stable even though the underlying
-tables are very wide, and each row is keyed by the lower-cased column name, so there is no
-alias table to keep in sync. `_projection_page()` is the shared implementation of
-`/clients`, `/agreements`, `/machines`, `/orders` and `/invoices`: `COUNT(*)` plus the page
-query on one connection, columns missing from the connected database silently skipped.
+**`service/`** — `DatabaseService` remains the only service injected into routes.
+`__init__.py` composes resource operation classes and re-exports the existing
+constants. The resource classes inherit `BaseDatabaseService`, which appears
+once in the facade's inheritance chain: its initializer creates one pool and
+one schema cache. Resource methods continue using that same state and the same
+transaction helpers. Existing imports from `ks_adapter.service` keep working.
+
+- `clients.py` — client projections, validation widths, legacy defaults,
+  list/create/update/delete methods.
+- `agreements.py` — agreement projections/defaults, creation and update,
+  protected ID allocation and atomic replacement of linked machines.
+- `machines.py` — machine projections/defaults and list/create/update methods.
+- `cpc_settlement.py` — settlement fields/defaults, filtering, record lookup,
+  create/update/delete and period/key validation.
+- `orders.py`, `invoices.py` — their curated columns/search fields and reads.
+- `base.py` — initialization/close, health/schema operations, generic row/query
+  reads, paging, write execution, serialization, payload validation and the
+  shared `_insert_plan()` helper. This layer does not import resource modules.
+
+Resource-specific constants live beside their operations; schemas import text
+widths directly from those modules. Every write still uses the existing SQL
+builders and `pool.write_session()`; moving the methods does not create new
+connections or transaction boundaries.
 
 The insert methods `create_client()` and `create_machine()` both refuse with
 `WritesDisabled` unless `api.allow_writes` is set, build their statement with
@@ -412,21 +412,14 @@ not appear in the program's client list, which is why the adapter reproduces tha
 profile instead of relying on the column defaults. `OSTATNIO` and `GUSDATA` stay out:
 they belong to the program's clock and data version.
 
-**`schemas.py`** — the wire format, and therefore the OpenAPI contract. `ServiceInfo`,
-`HealthResponse`/`DatabaseInfo`/`PoolInfo`, `TableSummary`, `TableListResponse`,
-`TableDetail`/`ColumnModel`, `SchemaRefreshResponse`, `RowPage`, `Client`/`ClientPage`,
-`ClientUpdate` (partial update body), `ClientCreate` (the `POST /clients` body: required `nazwa` plus the optional client
-columns, unknown fields rejected),
-`Agreement`/`AgreementPage`, `AgreementCreate` (optional details/machines; client ID in the URL),
-`AgreementUpdate` (partial agreement update),
-`Machine`/`MachinePage`, `MachineUpdate` (partial machine update), `MachineCreate` (the
-`POST /machines` body: all machine columns optional; `id_klient` defaults to `0`, unknown fields
-rejected), `Order`/`OrderPage`,
-`Invoice`/`InvoicePage`, `QueryRequest`/`QueryResponse`. Projection
-fields are all optional, so a missing column never breaks validation, and money columns
-use `DecimalValue = float | str`. Every projection field is named after its column,
-lower-cased (`nazwa`, `id_klient`, `suma_brutto`, ...), which is also the JSON key the
-client sees.
+**`schemas/`** — request/response models are grouped in the matching resource
+modules (`clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py`,
+`orders.py`, `invoices.py`). Related models and their inheritance stay together.
+`database.py` holds table/column/row/query/schema-refresh models; `meta.py`
+holds service/health/pool models; `common.py` defines `DecimalValue`.
+`__init__.py` re-exports existing model names, preserving imports from
+`ks_adapter.schemas`. Routes import their resource models directly. Model
+names, field constraints, response shapes and OpenAPI schemas are unchanged.
 
 ### Repository files
 
@@ -477,8 +470,8 @@ another database needs no code change.
 
 ## 3. Adding an endpoint, a field or a setting
 
-1. **New endpoint** — method in `service.py` (reuse `_projection_page()` for a curated
-   view), response model in `schemas.py`, route in the matching `routes/`
+1. **New endpoint** — method in `service/` (reuse `_projection_page()` for a curated
+   view), response model in `schemas/`, route in the matching `routes/`
    module (registered through `api.create_router` for authentication), then a row in the `README.md` endpoint table.
    A **writing** endpoint is the exception: it must be gated by `api.allow_writes`
    (raise `errors.WritesDisabled` → `403`), build its statement with

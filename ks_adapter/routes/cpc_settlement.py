@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 
 from ..config import AppSettings
-from ..schemas import (
+from ..schemas.cpc_settlement import (
     Cpc,
     CpcCreate,
     CpcPage,

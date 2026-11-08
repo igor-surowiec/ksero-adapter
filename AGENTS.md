@@ -27,7 +27,7 @@ get wrong.
 2. **Values are always parameters, never strings.** Emit `?` placeholders and
    pass the values separately; identifiers go through `sql.quote_identifier()`.
    Anything else is an injection bug.
-3. **All database work goes through `DatabaseService`** (`service.py`) and
+3. **All database work goes through `DatabaseService`** (`service/`) and
    `pool.session()`/`pool.write_session()`. Never call `fdb.connect()` from a
    route, service method or test - `pool.connect()` is the only place that opens
    connections.
@@ -75,16 +75,19 @@ marker.
 - `ks_adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
   `machines.py`, `cpc_settlement.py`, `orders.py`, `invoices.py`,
   `database.py`, public `meta.py`); `common.py` holds shared dependencies.
-- `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging,
-  `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`
-  `update_machine()` and `delete_client()`.
+- `ks_adapter/service/` - `DatabaseService` facade in `__init__.py`; resource
+  operations and constants in `clients.py`, `agreements.py`, `machines.py`,
+  `cpc_settlement.py`, `orders.py`, `invoices.py`; shared pool/cache/query/write
+  helpers in `base.py`. Every resource shares the facade's pool and cache.
 - `ks_adapter/sql.py` - read-only guard, `build_insert()` / `build_update()`,
   filters, ordering, `LIKE` search.
 - `ks_adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
 - `ks_adapter/pool.py` - thread-safe connection pool (`session()`,
   `write_session()`, `ping()`).
 - `ks_adapter/serialization.py` - Firebird to JSON types, `row_to_dict()`.
-- `ks_adapter/schemas.py` - Pydantic wire models, i.e. the OpenAPI contract.
+- `ks_adapter/schemas/` - Pydantic wire models by matching resource, plus
+  `database.py`, `meta.py` and shared `common.py`. `__init__.py` re-exports the
+  existing model names to preserve public imports.
 - `ks_adapter/config.py` - YAML + `${VAR}` + `KS_*` settings, validation.
 - `ks_adapter/errors.py` - `AdapterError` subclasses carrying HTTP statuses.
 - `ks_adapter/app.py` - app factory, exception handlers, CORS, lifespan.
@@ -94,10 +97,10 @@ marker.
 
 ### Add a field to a curated endpoint (`/clients`, `/agreements`, ...)
 
-1. Append the column name to the matching `*_COLUMNS` constant in `service.py`
+1. Append the column name to the matching `*_COLUMNS` constant in its `service/<resource>.py` module
    and, if it must be searchable, the column to `*_SEARCH_COLUMNS` **within
    budget** - the suite asserts the budget.
-2. Add the optional field to the Pydantic model in `schemas.py`, named after
+2. Add the optional field to the Pydantic model in `schemas/<resource>.py`, named after
    the column in lower case (`NAZWA` -> `nazwa`): the JSON key *is* the column
    name, there is no alias table to update.
 3. Extend the stub `TableInfo` in the tests if the assertions need values.
@@ -105,10 +108,10 @@ marker.
 
 ### Add a curated endpoint
 
-1. Constants in `service.py`: `X_TABLE`, `X_COLUMNS`, `X_SEARCH_COLUMNS`.
+1. Constants in the resource's `service/` module: `X_TABLE`, `X_COLUMNS`, `X_SEARCH_COLUMNS`.
 2. `fetch_x()` that calls `_projection_page(...)` and renames `rows` to the
    plural key.
-3. Models in `schemas.py` and a route in the appropriate `routes/` module.
+3. Models in the resource's `schemas/` module and a route in the appropriate `routes/` module.
    Resource routers are protected centrally by `api.create_router`; only
    `routes/meta.py` is public. Register any new resource module in `api.py`.
 4. `FakeService.fetch_x` in `tests/conftest.py`, tests in `test_api.py` /
@@ -183,7 +186,7 @@ the variable is public.
 - Docstrings: one-line module docstring, public API documented, reST
   cross-references (`:data:`, `:class:`, `:meth:`) and ``double backticks`` for
   code. **Keep them count-free** - no hard-coded column or test counts.
-- Documented module constants get a `#:` comment above them (`service.py`).
+- Documented module constants get a `#:` comment above them (`service/`).
 - Errors: raise `errors.AdapterError` subclasses (`InvalidRequest` 400,
   `AuthenticationError` 401, `WritesDisabled` 403, `TableNotFound` 404,
   `DatabaseUnavailable` 503).

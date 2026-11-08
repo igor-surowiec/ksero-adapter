@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 
 from ..config import AppSettings
 from ..errors import InvalidRequest
-from ..schemas import (
+from ..schemas.machines import (
     Machine,
     MachineCreate,
     MachinePage,

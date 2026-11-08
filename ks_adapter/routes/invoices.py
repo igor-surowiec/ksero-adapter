@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query
 
 from ..config import AppSettings
-from ..schemas import InvoicePage
+from ..schemas.invoices import InvoicePage
 from ..service import DatabaseService
 from .common import get_service, page_limit
 
