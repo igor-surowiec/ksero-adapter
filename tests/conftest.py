@@ -196,6 +196,9 @@ class FakeService:
         })
         return to_jsonable({"id_umowacpc": id_umowacpc, **values})
 
+    def delete_agreement(self, id_umowacpc: int) -> None:
+        self.calls.append({"action": "delete_agreement", "id_umowacpc": id_umowacpc})
+
     def fetch_machines(
         self,
         *,

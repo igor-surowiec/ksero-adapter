@@ -35,7 +35,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on resource requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /agreements/{id_umowacpc}`, `POST/PATCH/DELETE /cpc-settlement`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /cpc-agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}`, `POST/PATCH/DELETE /cpc-settlement`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT` | API page caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -66,9 +66,10 @@ the same way. The existing `GET /api/v1/` still returns JSON service information
 | `POST` | `/clients` | create a contractor (`KLIENT`), `nazwa` plus optional fields |
 | `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
 | `DELETE` | `/clients/{id_klient}` | delete a contractor and trigger-managed machines/contacts (`204`) |
-| `GET` | `/agreements` | service agreements (`UMOWACPC`) |
-| `POST` | `/agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
-| `PATCH` | `/agreements/{id_umowacpc}` | update agreement details and optionally link machines |
+| `GET` | `/cpc-agreements` | service agreements (`UMOWACPC`) |
+| `POST` | `/cpc-agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
+| `PATCH` | `/cpc-agreements/{id_umowacpc}` | update agreement details and optionally link machines |
+| `DELETE` | `/cpc-agreements/{id_umowacpc}` | delete an unreferenced agreement (`204`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
 | `POST` | `/machines/{id_klient}` | create a machine with the client ID from the URL |
@@ -82,7 +83,7 @@ the same way. The existing `GET /api/v1/` still returns JSON service information
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 
 List endpoints take `limit` (default `api.default_limit`, max `api.max_limit`)
-and `offset`. The curated ones (`/clients`, `/agreements`, `/machines`,
+and `offset`. The curated ones (`/clients`, `/cpc-agreements`, `/machines`,
 `/orders`, `/invoices`) also take `search`, a case-sensitive substring with
 escaped wildcards, and return a hand-picked column subset that stays inside
 Firebird's 64 KB statement-message limit - the reason `ZLECENIE` is never
@@ -142,7 +143,7 @@ triggers. Requires `KS_ALLOW_WRITES=true` and the configured API key.
 curl -X DELETE http://127.0.0.1:8000/api/v1/clients/42
 ```
 
-`POST /agreements/{id_klient}` inserts a service agreement into `UMOWACPC`. The positive
+`POST /cpc-agreements/{id_klient}` inserts a service agreement into `UMOWACPC`. The positive
 `id_klient` (contractor) comes from the URL path. The request body is optional;
 omit it or send `{}` to use defaults. Do not include `id_klient` in the body. The adapter assigns `id_umowacpc` as the
 lowest unused positive integer, starting at `1` and reusing gaps (existing IDs
@@ -175,7 +176,7 @@ blank, it defaults to `{generated ID_UMOWACPC}/{current database year}`, e.g.
 not change the numbering year. Type, end date and company are left to the caller; reference-specific values are not copied. The response is the stored `Agreement` projection with `201`.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
+curl -X POST http://127.0.0.1:8000/api/v1/cpc-agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
 ```
 
 Agreement requests accept an optional `machines` array of positive
@@ -190,7 +191,7 @@ links are untouched. Repeated list entries are processed once.
 Arrays accept up to 1000 integer IDs; null, strings, booleans and nonpositive
 values are rejected with `422`.
 
-`PATCH /agreements/{id_umowacpc}` updates supplied agreement fields only and
+`PATCH /cpc-agreements/{id_umowacpc}` updates supplied agreement fields only and
 returns the stored agreement with `200`. Its URL identifies an agreement;
 the POST URL identifies a client. The optional array can accompany agreement
 details or be the only field. Omitted fields retain their values; null clears
@@ -205,15 +206,23 @@ multiple records return `409`. Any such failure rolls back the agreement and
 all links, including machines already processed in that request. Both routes
 require writes enabled and the configured API key.
 
+`DELETE /cpc-agreements/{id_umowacpc}` deletes an agreement by its positive business
+ID and returns `204` with no body. Missing agreements return `404`; duplicate
+IDs or any records referencing the agreement return `409`. This includes
+machines, CPC settlements, invoices and lock records. Related records are
+preserved, because deleted agreement IDs can be reused by a new agreement.
+Clear machine links with `PATCH /cpc-agreements/{id_umowacpc}` and `{"machines": []}`
+before deletion. Requires writes enabled and the configured API key.
+
 ```http
-POST /api/v1/agreements/42
+POST /api/v1/cpc-agreements/42
 Content-Type: application/json
 
 {"umowa": "CPC/2026/001", "machines": [4, 7, 12]}
 ```
 
 ```http
-PATCH /api/v1/agreements/3
+PATCH /api/v1/cpc-agreements/3
 Content-Type: application/json
 
 {"uwagi": "Updated agreement", "machines": [15, 18]}

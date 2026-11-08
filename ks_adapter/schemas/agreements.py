@@ -46,7 +46,7 @@ class Agreement(BaseModel):
 
 
 class AgreementPage(BaseModel):
-    """A page of agreements returned by ``/agreements``."""
+    """A page of agreements returned by ``/cpc-agreements``."""
 
     total: int = Field(description="Total number of agreements matching 'search'")
     count: int = Field(description="Number of agreements in this page")

@@ -150,7 +150,7 @@ class BaseDatabaseService:
     ) -> dict[str, Any]:
         """Page through a stable projection of ``table``.
 
-        Shared implementation of ``/clients``, ``/agreements``,
+        Shared implementation of ``/clients``, ``/cpc-agreements``,
         ``/machines``, ``/orders`` and ``/invoices``: selects only the
         ``columns`` that exist in the database,
         applies the optional ``search`` substring, orders by ``order_columns``

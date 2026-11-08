@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi.responses import Response
 
 from ..config import AppSettings
 from ..schemas.agreements import (
@@ -22,7 +23,7 @@ def create_router(settings: AppSettings) -> APIRouter:
     router = APIRouter()
 
     @router.get(
-        "/agreements",
+        "/cpc-agreements",
         response_model=AgreementPage,
         tags=["data"],
         summary="List service agreements (contracts)",
@@ -50,7 +51,7 @@ def create_router(settings: AppSettings) -> APIRouter:
 
 
     @router.post(
-        "/agreements/{id_klient}",
+        "/cpc-agreements/{id_klient}",
         response_model=Agreement,
         status_code=status.HTTP_201_CREATED,
         tags=["data"],
@@ -67,7 +68,7 @@ def create_router(settings: AppSettings) -> APIRouter:
             "An optional machines array links those ID_MASZYNA records to "
             "the new agreement in the same transaction. Missing or ambiguous "
             "machine IDs roll back everything. Omitted preserves links; empty clears. "
-            "Returns the same projection as GET /agreements. Generated table "
+            "Returns the same projection as GET /cpc-agreements. Generated table "
             "keys and financial totals cannot be supplied. Requires "
             "api.allow_writes and the configured X-API-Key."
         ),
@@ -84,7 +85,7 @@ def create_router(settings: AppSettings) -> APIRouter:
 
 
     @router.patch(
-        "/agreements/{id_umowacpc}",
+        "/cpc-agreements/{id_umowacpc}",
         response_model=Agreement,
         tags=["data"],
         summary="Update a service agreement and optionally link machines",
@@ -108,5 +109,25 @@ def create_router(settings: AppSettings) -> APIRouter:
             id_umowacpc, payload.model_dump(exclude_unset=True)
         )
 
+
+    @router.delete(
+        "/cpc-agreements/{id_umowacpc}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        response_class=Response,
+        tags=["data"],
+        summary="Delete an unreferenced service agreement",
+        description=(
+            "Deletes by ID_UMOWACPC. Returns 204 with no body, 404 when missing, "
+            "or 409 for duplicate IDs or records still referencing the agreement "
+            "(including machines, CPC settlements and invoices). Related records "
+            "are preserved. Requires api.allow_writes and the configured X-API-Key."
+        ),
+    )
+    def delete_agreement(
+        id_umowacpc: int = Path(ge=1),
+        service: DatabaseService = Depends(get_service),
+    ) -> Response:
+        service.delete_agreement(id_umowacpc)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

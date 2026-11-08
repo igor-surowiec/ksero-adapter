@@ -160,13 +160,13 @@ def test_agreements_endpoint_lists_contracts(service: DatabaseService) -> None:
 def test_agreements_endpoint_over_http(service: DatabaseService) -> None:
     app = create_app(service.settings, service=service)
     with TestClient(app) as client:
-        response = client.get("/api/v1/agreements", params={"limit": 3})
+        response = client.get("/api/v1/cpc-agreements", params={"limit": 3})
         assert response.status_code == 200
         body = response.json()
         assert body["limit"] == 3
         assert isinstance(body["agreements"], list)
         assert body["count"] == len(body["agreements"])
-        empty = client.get("/api/v1/agreements", params={"search": "zzz-nobody-zzz"})
+        empty = client.get("/api/v1/cpc-agreements", params={"search": "zzz-nobody-zzz"})
         assert empty.status_code == 200
         assert empty.json()["agreements"] == []
 
@@ -629,7 +629,7 @@ def test_create_agreement_endpoint_stores_fields_and_legacy_defaults(
     try:
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
-            response = client.post(f"/api/v1/agreements/{owner['id_klient']}", json={
+            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}", json={
                 "umowa": " KS ADAPTER AGREEMENT TEST ", "u_start": "2026-11-08",
                 "rabat": "2.5000", "termin": 14, "aktywna": "TAK",
             })
@@ -736,7 +736,7 @@ def test_create_agreement_defaults_match_legacy_reference(
         )
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
-            response = client.post(f"/api/v1/agreements/{owner['id_klient']}")
+            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}")
         assert response.status_code == 201
         agreement = response.json()
         after = write_service.run_query(
@@ -883,7 +883,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
         app = create_app(single.settings, service=single)
         with TestClient(app) as client:
             response = client.post(
-                f"/api/v1/agreements/{owner['id_klient']}", json={
+                f"/api/v1/cpc-agreements/{owner['id_klient']}", json={
                     "machines": [m["id_maszyna"] for m in machines[:2]],
                 },
             )
@@ -893,7 +893,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
             for machine in machines[:2]:
                 assert stored(machine)["ID_UMOWACPC"] == linked["id_umowacpc"]
             assert stored(machines[2])["ID_UMOWACPC"] == original["id_umowacpc"]
-            url = f"/api/v1/agreements/{linked['id_umowacpc']}"
+            url = f"/api/v1/cpc-agreements/{linked['id_umowacpc']}"
             response = client.patch(url, json={
                 "uwagi": "UPDATED", "machines": [machines[2]["id_maszyna"]],
             })
@@ -916,7 +916,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
             }).status_code == 200
             # Clearing one agreement must not touch another agreement's links.
             assert client.patch(
-                f"/api/v1/agreements/{original['id_umowacpc']}",
+                f"/api/v1/cpc-agreements/{original['id_umowacpc']}",
                 json={"machines": []},
             ).status_code == 200
             assert stored(machines[0])["ID_UMOWACPC"] == linked["id_umowacpc"]
@@ -934,7 +934,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
             assert stored(machines[1])["ID_UMOWACPC"] is None
             count_before = write_service.fetch_rows("UMOWACPC")["total"]
             response = client.post(
-                f"/api/v1/agreements/{owner['id_klient']}", json={
+                f"/api/v1/cpc-agreements/{owner['id_klient']}", json={
                     "machines": [machines[0]["id_maszyna"], missing],
                 },
             )
@@ -976,12 +976,12 @@ def test_agreement_links_reject_duplicate_machine_business_ids(
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
             response = client.patch(
-                f"/api/v1/agreements/{agreement['id_umowacpc']}",
+                f"/api/v1/cpc-agreements/{agreement['id_umowacpc']}",
                 json={"machines": [machines[0]["id_maszyna"]]},
             )
             assert response.status_code == 409
             response = client.post(
-                f"/api/v1/agreements/{owner['id_klient']}",
+                f"/api/v1/cpc-agreements/{owner['id_klient']}",
                 json={"machines": [machines[0]["id_maszyna"]]},
             )
             assert response.status_code == 409
@@ -1197,4 +1197,45 @@ def test_create_machine_client_path_uses_legacy_defaults(
     finally:
         if machine is not None:
             delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+
+@requires_writable
+def test_delete_agreement_endpoint_and_link_conflict(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER DELETE AGREEMENT TEST"})
+    agreement = machine = None
+    try:
+        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        key = agreement["id_umowacpc"]
+        machine = write_service.create_machine({
+            "id_klient": owner["id_klient"], "id_umowacpc": key,
+        })
+        with TestClient(create_app(
+            write_service.settings, service=write_service,
+        )) as client:
+            response = client.delete(f"/api/v1/cpc-agreements/{key}")
+            assert response.status_code == 409
+            assert write_service.fetch_rows("UMOWACPC", filters=json.dumps({
+                "ID_UMOWACPC_TABLE": agreement["id_umowacpc_table"],
+            }))["total"] == 1
+            write_service.update_agreement(key, {"machines": []})
+            response = client.delete(f"/api/v1/cpc-agreements/{key}")
+            assert response.status_code == 204
+            assert response.content == b""
+            assert client.delete(f"/api/v1/cpc-agreements/{key}").status_code == 404
+        assert write_service.fetch_rows("UMOWACPC", filters=json.dumps({
+            "ID_UMOWACPC_TABLE": agreement["id_umowacpc_table"],
+        }))["total"] == 0
+        stored = write_service.fetch_rows("MASZYNA", filters=json.dumps({
+            "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+        }))["rows"][0]
+        assert stored["ID_UMOWACPC"] is None
+    finally:
+        if machine:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        if agreement:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
         delete_client(write_service, owner["id_klient_table"])

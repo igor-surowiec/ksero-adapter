@@ -210,7 +210,7 @@ $("request-form").addEventListener("submit", async event => {
     }
     if (!operations.length) throw new Error("No API routes found for " + prefix);
     const groups = new Map([
-      ["clients", "Clients"], ["agreements", "Agreements"],
+      ["clients", "Clients"], ["cpc-agreements", "CPC agreements"],
       ["machines", "Machines"], ["cpc-settlement", "CPC settlements"],
       ["orders", "Orders"], ["invoices", "Invoices"],
       ["meta", "Service"]

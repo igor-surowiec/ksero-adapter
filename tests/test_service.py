@@ -2504,3 +2504,69 @@ def test_create_machine_uses_full_legacy_profile_and_caller_overrides() -> None:
     assert inserted["SYNWP"] == 0
     assert inserted["MKOD"] == ""
     assert pool.committed == 1
+
+
+
+def test_delete_agreement_commits_bound_delete() -> None:
+    pool = _Pool([(None, [(51,)]), (None, []), (None, [(51,)])])
+    service = make_projection_service(
+        pool, UMOWACPC, MACHINE_LINKABLE, allow_writes=True
+    )
+    assert service.delete_agreement(51) is None
+    assert pool.executed == [
+        ('SELECT FIRST 2 "ID_UMOWACPC" FROM "UMOWACPC" '
+         'WHERE "ID_UMOWACPC" = ?', [51]),
+        ('SELECT FIRST 1 "ID_UMOWACPC" FROM "MASZYNA" '
+         'WHERE "ID_UMOWACPC" = ?', [51]),
+        ('DELETE FROM "UMOWACPC" WHERE "ID_UMOWACPC" = ? '
+         'RETURNING "ID_UMOWACPC"', [51]),
+    ]
+    assert pool.reserved_tables == ["UMOWACPC"]
+    assert pool.committed == 1
+    assert pool.rolled_back == 0
+
+
+@pytest.mark.parametrize("rows, error", [
+    ([], RecordNotFound), ([(51,), (51,)], RecordConflict),
+])
+def test_delete_agreement_rejects_missing_or_duplicate_ids(
+    rows: Any, error: Any,
+) -> None:
+    pool = _Pool([(None, rows)])
+    service = make_projection_service(pool, UMOWACPC, allow_writes=True)
+    with pytest.raises(error):
+        service.delete_agreement(51)
+    assert len(pool.executed) == 1
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("table", ["MASZYNA", "CPC", "FAKTURA", "LOCKT"])
+def test_delete_agreement_preserves_referencing_records(table: str) -> None:
+    reference = TableInfo(table, "table", None, (
+        ColumnInfo("ID_UMOWACPC", 0, "INTEGER", True),
+    ))
+    pool = _Pool([(None, [(51,)]), (None, [(51,)])])
+    service = make_projection_service(pool, UMOWACPC, reference, allow_writes=True)
+    with pytest.raises(RecordConflict, match=table):
+        service.delete_agreement(51)
+    assert not any(sql.startswith("DELETE") for sql, _ in pool.executed)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("key", [0, -1, True, None, "51"])
+def test_delete_agreement_validates_id_before_sql(key: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, UMOWACPC, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.delete_agreement(key)
+    assert pool.executed == []
+
+
+def test_delete_agreement_refuses_disabled_writes() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, UMOWACPC)
+    with pytest.raises(WritesDisabled):
+        service.delete_agreement(51)
+    assert pool.executed == []

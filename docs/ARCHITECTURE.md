@@ -3,9 +3,9 @@
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
-read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /agreements/{id_klient}`,
+read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /cpc-agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
-`PATCH /agreements/{id_umowacpc}`,
+`PATCH /cpc-agreements/{id_umowacpc}`,
 `DELETE /clients/{id_klient}`)
 are disabled unless `api.allow_writes` is set.
 
@@ -81,7 +81,7 @@ response ◄──────────────────────�
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service/`.
 - `SchemaCache.get()` is consulted by the table-oriented endpoints only
-  (`/clients`, `/agreements`, `/machines`, `/cpc-settlement`, `/orders`,
+  (`/clients`, `/cpc-agreements`, `/machines`, `/cpc-settlement`, `/orders`,
   `/invoices`); `/health` skips it.
 
 ### 1.3 Example traces
@@ -139,7 +139,7 @@ the non-negative URL owner before calling the same `create_machine()` service.
 It shares the write gate, API key check, native defaults and `201` response.
 The collection POST route remains available for existing callers.
 
-`POST /agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
+`POST /cpc-agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
 A positive `ID_KLIENT` comes from the URL path; the optional body contains
 only agreement details. Both agreement identifiers are read-only.
 The service normalises `AGREEMENT_WRITE_COLUMNS` with `AGREEMENT_TEXT_LENGTHS`
@@ -178,7 +178,7 @@ links unchanged. A supplied list (including empty) replaces all links: a bound
 assigning the requested records. Missing/ambiguous IDs roll back those clears
 as well. Other agreements' unlisted machines remain untouched.
 
-`PATCH /agreements/{id_umowacpc}` validates `AgreementUpdate`, preserves omitted
+`PATCH /cpc-agreements/{id_umowacpc}` validates `AgreementUpdate`, preserves omitted
 fields and opens the same reserved agreement transaction. A bounded SELECT
 rejects missing/ambiguous agreement business IDs. It updates supplied columns
 with `build_update()` / RETURNING, optionally links machines, serialises the
@@ -237,6 +237,15 @@ invented by the API; supplied amounts are stored as such. Live tests create
 isolated parents and verify totals across insertion, update and deletion.
 
 ### 1.4 Errors and shutdown
+
+`DELETE /cpc-agreements/{id_umowacpc}` calls `delete_agreement()`, gated by
+`_require_writes()`. A reserved write transaction checks that the business ID
+matches exactly one agreement, checks catalog-discovered table references
+through `ID_UMOWACPC`, and deletes with `sql.build_delete()` and a bound ID.
+Missing records raise `RecordNotFound`; duplicate IDs or references raise
+`RecordConflict`. Any failure rolls back. No related records are cascaded or
+unlinked; this prevents stale links from attaching to a reused agreement ID.
+The tester discovers the new DELETE operation from OpenAPI automatically.
 
 | Raised in | Type | HTTP |
 | --- | --- | --- |

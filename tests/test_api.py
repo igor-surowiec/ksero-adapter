@@ -61,7 +61,7 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     paths = response.json()["paths"]
     assert "/api/v1/clients" in paths
     assert "post" in paths["/api/v1/clients"]
-    assert "/api/v1/agreements" in paths
+    assert "/api/v1/cpc-agreements" in paths
     assert "/api/v1/machines" in paths
     assert "post" in paths["/api/v1/machines"]
     assert "/api/v1/orders" in paths
@@ -119,7 +119,7 @@ def test_clients_requires_api_key() -> None:
 
 def test_agreements_endpoint(client: TestClient, fake_service: FakeService) -> None:
     response = client.get(
-        "/api/v1/agreements", params={"limit": 10, "offset": 5, "search": "cpc"}
+        "/api/v1/cpc-agreements", params={"limit": 10, "offset": 5, "search": "cpc"}
     )
     assert response.status_code == 200
     body = response.json()
@@ -138,7 +138,7 @@ def test_agreements_endpoint(client: TestClient, fake_service: FakeService) -> N
 
 
 def test_agreements_endpoint_defaults(client: TestClient, fake_service: FakeService) -> None:
-    response = client.get("/api/v1/agreements")
+    response = client.get("/api/v1/cpc-agreements")
     assert response.status_code == 200
     body = response.json()
     assert body["limit"] == 50
@@ -149,11 +149,11 @@ def test_agreements_endpoint_defaults(client: TestClient, fake_service: FakeServ
 
 
 def test_agreements_rejects_out_of_range_limit(client: TestClient) -> None:
-    assert client.get("/api/v1/agreements", params={"limit": 0}).status_code == 422
-    assert client.get("/api/v1/agreements", params={"limit": 5000}).status_code == 422
-    assert client.get("/api/v1/agreements", params={"offset": -1}).status_code == 422
+    assert client.get("/api/v1/cpc-agreements", params={"limit": 0}).status_code == 422
+    assert client.get("/api/v1/cpc-agreements", params={"limit": 5000}).status_code == 422
+    assert client.get("/api/v1/cpc-agreements", params={"offset": -1}).status_code == 422
     assert (
-        client.get("/api/v1/agreements", params={"search": "x" * 101}).status_code
+        client.get("/api/v1/cpc-agreements", params={"search": "x" * 101}).status_code
         == 422
     )
 
@@ -162,8 +162,8 @@ def test_agreements_requires_api_key() -> None:
     settings = make_settings(api_key="secret")
     app = create_app(settings, service=FakeService())
     with TestClient(app) as client:
-        assert client.get("/api/v1/agreements").status_code == 401
-        allowed = client.get("/api/v1/agreements", headers={"X-API-Key": "secret"})
+        assert client.get("/api/v1/cpc-agreements").status_code == 401
+        allowed = client.get("/api/v1/cpc-agreements", headers={"X-API-Key": "secret"})
         assert allowed.status_code == 200
 
 
@@ -185,7 +185,7 @@ def test_agreements_accepts_decimal_strings(
 
     fake_service.fetch_agreements = fake_fetch  # type: ignore[method-assign]
 
-    response = client.get("/api/v1/agreements")
+    response = client.get("/api/v1/cpc-agreements")
 
     assert response.status_code == 200
     agreement = response.json()["agreements"][0]
@@ -773,7 +773,7 @@ def test_create_agreement_returns_stored_projection(
         "umowa": "CPC/2026/001",
         "u_start": "2026-11-08", "rabat": "2.5000", "uwagi": None,
     }
-    response = client.post("/api/v1/agreements/7", json=payload)
+    response = client.post("/api/v1/cpc-agreements/7", json=payload)
     assert response.status_code == 201
     assert response.json()["id_umowacpc_table"] == 3001
     assert response.json()["id_umowacpc"] == 1
@@ -796,16 +796,16 @@ def test_create_agreement_returns_stored_projection(
 def test_create_agreement_rejects_invalid_fields(
     client: TestClient, payload: dict[str, Any],
 ) -> None:
-    assert client.post("/api/v1/agreements/7", json=payload).status_code == 422
+    assert client.post("/api/v1/cpc-agreements/7", json=payload).status_code == 422
 
 
 def test_create_agreement_requires_api_key() -> None:
     app = create_app(make_settings(api_key="secret"), service=FakeService())
     payload = {}
     with TestClient(app) as client:
-        assert client.post("/api/v1/agreements/7", json=payload).status_code == 401
+        assert client.post("/api/v1/cpc-agreements/7", json=payload).status_code == 401
         assert client.post(
-            "/api/v1/agreements/7", json=payload,
+            "/api/v1/cpc-agreements/7", json=payload,
             headers={"X-API-Key": "secret"},
         ).status_code == 201
 
@@ -818,7 +818,7 @@ def test_create_agreement_reports_disabled_writes() -> None:
     app = create_app(make_settings(), service=ReadOnlyService())
     with TestClient(app) as client:
         response = client.post(
-            "/api/v1/agreements/7", json={}
+            "/api/v1/cpc-agreements/7", json={}
         )
     assert response.status_code == 403
     assert response.json()["error"] == "WritesDisabled"
@@ -829,7 +829,7 @@ def test_create_agreement_needs_only_client_path(
     client: TestClient, fake_service: FakeService, with_body: bool,
 ) -> None:
     response = client.post(
-        "/api/v1/agreements/42", **({"json": {}} if with_body else {})
+        "/api/v1/cpc-agreements/42", **({"json": {}} if with_body else {})
     )
     assert response.status_code == 201
     assert fake_service.calls[-1] == {
@@ -839,11 +839,11 @@ def test_create_agreement_needs_only_client_path(
 
 @pytest.mark.parametrize("key", ["0", "-1", "invalid"])
 def test_create_agreement_validates_client_path(client: TestClient, key: str) -> None:
-    assert client.post(f"/api/v1/agreements/{key}").status_code == 422
+    assert client.post(f"/api/v1/cpc-agreements/{key}").status_code == 422
 
 
 def test_create_agreement_old_post_route_is_removed(client: TestClient) -> None:
-    assert client.post("/api/v1/agreements", json={"id_klient": 42}).status_code == 405
+    assert client.post("/api/v1/cpc-agreements", json={"id_klient": 42}).status_code == 405
 
 
 def test_update_machine_returns_stored_projection(
@@ -904,7 +904,7 @@ def test_update_machine_reports_domain_errors(error: Exception, status: int) -> 
 def test_create_agreement_forwards_optional_machines(
     client: TestClient, fake_service: FakeService,
 ) -> None:
-    response = client.post("/api/v1/agreements/7", json={"machines": [4, 9]})
+    response = client.post("/api/v1/cpc-agreements/7", json={"machines": [4, 9]})
     assert response.status_code == 201
     assert fake_service.calls[-1] == {
         "action": "create_agreement", "values": {"id_klient": 7, "machines": [4, 9]},
@@ -914,7 +914,7 @@ def test_create_agreement_forwards_optional_machines(
 def test_update_agreement_forwards_only_supplied_fields(
     client: TestClient, fake_service: FakeService,
 ) -> None:
-    response = client.patch("/api/v1/agreements/51", json={
+    response = client.patch("/api/v1/cpc-agreements/51", json={
         "machines": [4, 9], "uwagi": None,
     })
     assert response.status_code == 200
@@ -932,7 +932,7 @@ def test_agreement_routes_validate_machine_arrays(
 ) -> None:
     for method in (client.post, client.patch):
         assert method(
-            "/api/v1/agreements/7", json={"machines": machines}
+            "/api/v1/cpc-agreements/7", json={"machines": machines}
         ).status_code == 422
 
 
@@ -940,14 +940,14 @@ def test_update_agreement_requires_api_key_and_valid_path() -> None:
     app = create_app(make_settings(api_key="secret"), service=FakeService())
     with TestClient(app) as client:
         assert client.patch(
-            "/api/v1/agreements/51", json={"machines": [4]}
+            "/api/v1/cpc-agreements/51", json={"machines": [4]}
         ).status_code == 401
         assert client.patch(
-            "/api/v1/agreements/51", json={"machines": [4]},
+            "/api/v1/cpc-agreements/51", json={"machines": [4]},
             headers={"X-API-Key": "secret"},
         ).status_code == 200
         assert client.patch(
-            "/api/v1/agreements/0", json={"machines": [4]},
+            "/api/v1/cpc-agreements/0", json={"machines": [4]},
             headers={"X-API-Key": "secret"},
         ).status_code == 422
 
@@ -964,7 +964,7 @@ def test_update_agreement_reports_domain_errors(error: Exception, status: int) -
             raise error
 
     with TestClient(create_app(make_settings(), service=FailingService())) as client:
-        response = client.patch("/api/v1/agreements/51", json={"machines": [4]})
+        response = client.patch("/api/v1/cpc-agreements/51", json={"machines": [4]})
     assert response.status_code == status
     assert response.json()["error"] == type(error).__name__
 
@@ -1169,3 +1169,31 @@ def test_database_routes_are_removed(prefix: str) -> None:
             for suffix in ("/tables", "/schema", "/query")
         )
     assert service.calls == []
+
+
+
+def test_delete_agreement_endpoint(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.delete("/api/v1/cpc-agreements/51")
+    assert response.status_code == 204
+    assert response.content == b""
+    assert fake_service.calls == [{"action": "delete_agreement", "id_umowacpc": 51}]
+
+
+@pytest.mark.parametrize("error, status", [
+    (RecordNotFound("missing"), 404), (RecordConflict("referenced"), 409),
+    (WritesDisabled("disabled"), 403),
+])
+def test_delete_agreement_maps_service_errors(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def delete_agreement(self, id_umowacpc: int) -> None:
+            raise error
+
+    with TestClient(create_app(make_settings(), service=FailingService())) as client:
+        assert client.delete("/api/v1/cpc-agreements/51").status_code == status
+
+
+@pytest.mark.parametrize("key", ["0", "-1", "invalid"])
+def test_delete_agreement_rejects_invalid_path(client: TestClient, key: str) -> None:
+    assert client.delete("/api/v1/cpc-agreements/" + key).status_code == 422

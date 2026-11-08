@@ -12,7 +12,9 @@ from ..errors import (
     RecordNotFound,
 )
 from ..schema import TableInfo
-from ..sql import build_insert, build_next_available_id, build_update, quote_identifier
+from ..sql import (
+    build_delete, build_insert, build_next_available_id, build_update, quote_identifier,
+)
 from .base import BaseDatabaseService, _insert_plan
 from .machines import MACHINES_TABLE
 
@@ -20,7 +22,7 @@ from .machines import MACHINES_TABLE
 #: Table holding service agreements (contracts) in the BAZAMS schema.
 AGREEMENTS_TABLE = "UMOWACPC"
 
-#: Columns exposed by ``GET /agreements`` (keys: lower-cased column names).
+#: Columns exposed by ``GET /cpc-agreements`` (keys: lower-cased column names).
 AGREEMENT_COLUMNS: tuple[str, ...] = (
     "ID_UMOWACPC_TABLE",
     "ID_UMOWACPC",
@@ -52,7 +54,7 @@ AGREEMENT_COLUMNS: tuple[str, ...] = (
     "PLIK",
 )
 
-#: Columns matched by the ``search`` parameter of ``GET /agreements``.
+#: Columns matched by the ``search`` parameter of ``GET /cpc-agreements``.
 AGREEMENT_SEARCH_COLUMNS: tuple[str, ...] = (
     "UMOWA",
     "TYP",
@@ -245,6 +247,57 @@ class AgreementsService(BaseDatabaseService):
                     cursor, machines, id_umowacpc, machine_info
                 )
                 return self._serialize_row([c.lower() for c in selected], row)
+            finally:
+                cursor.close()
+
+    def delete_agreement(self, id_umowacpc: int) -> None:
+        """Delete an unreferenced agreement by its unique business identifier."""
+        self._require_writes()
+        if (
+            not isinstance(id_umowacpc, int)
+            or isinstance(id_umowacpc, bool)
+            or id_umowacpc < 1
+        ):
+            raise InvalidRequest("'id_umowacpc' must be a positive integer")
+        info = self.schema.get(AGREEMENTS_TABLE)
+        key = info.column_map.get("ID_UMOWACPC")
+        if key is None:
+            raise InvalidRequest("Agreement table has no ID_UMOWACPC key")
+        references = [
+            table for name, table in self.schema.tables().items()
+            if name.upper() != AGREEMENTS_TABLE
+            and table.kind == "table" and "ID_UMOWACPC" in table.column_map
+        ]
+        with self.pool.write_session(reserve_table=info.name) as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    f"SELECT FIRST 2 {quote_identifier(key)} "
+                    f"FROM {quote_identifier(info.name)} "
+                    f"WHERE {quote_identifier(key)} = ?", [id_umowacpc],
+                )
+                rows = cursor.fetchall()
+                if not rows:
+                    raise RecordNotFound(f"Agreement {id_umowacpc} not found")
+                if len(rows) > 1:
+                    raise RecordConflict(f"Multiple agreements have ID {id_umowacpc}")
+                # IDs are reused by creation, so dangling links would silently
+                # attach historical records to an unrelated new agreement.
+                for table in references:
+                    column = table.column_map["ID_UMOWACPC"]
+                    cursor.execute(
+                        f"SELECT FIRST 1 {quote_identifier(column)} "
+                        f"FROM {quote_identifier(table.name)} "
+                        f"WHERE {quote_identifier(column)} = ?", [id_umowacpc],
+                    )
+                    if cursor.fetchone() is not None:
+                        raise RecordConflict(
+                            f"Agreement {id_umowacpc} is referenced by {table.name}"
+                        )
+                cursor.execute(build_delete(info.name, key=key), [id_umowacpc])
+                row = cursor.fetchone()
+                if row is None or row[0] is None:
+                    raise RecordNotFound(f"Agreement {id_umowacpc} not found")
             finally:
                 cursor.close()
 

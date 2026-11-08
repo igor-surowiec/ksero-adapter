@@ -3,9 +3,9 @@
 Guidance for AI agents (and new contributors) working on **ks-adapter**, a
 FastAPI bridge in front of a Firebird database (Firebird 2.5, `WIN1250` Polish
 data; the `ZLECENIE` table alone has 154 columns). It is read-only by default;
-`POST /clients`, `POST /machines`, `POST /machines/{id_klient}`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}` and
+`POST /clients`, `POST /machines`, `POST /machines/{id_klient}`, `POST /cpc-agreements/{id_klient}`, `PATCH /clients/{id_klient}` and
 `DELETE /clients/{id_klient}`, `PATCH /machines/{id_maszyna}` and
-`PATCH /agreements/{id_umowacpc}`
+`PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}`
 and CPC POST/PATCH/DELETE are opt-in write routes.
 
 User documentation is [`README.md`](README.md), the flow and file-by-file
@@ -97,7 +97,7 @@ marker.
 
 ## Recipes
 
-### Add a field to a curated endpoint (`/clients`, `/agreements`, ...)
+### Add a field to a curated endpoint (`/clients`, `/cpc-agreements`, ...)
 
 1. Append the column name to the matching `*_COLUMNS` constant in its `service/<resource>.py` module
    and, if it must be searchable, the column to `*_SEARCH_COLUMNS` **within
