@@ -2234,3 +2234,215 @@ def test_update_agreement_omitted_machine_array_preserves_links() -> None:
     service.update_agreement(51, {"umowa": "NEW"})
     assert not any('"MASZYNA"' in sql for sql, _ in pool.executed)
     assert pool.committed == 1
+
+
+CPC_STUB = TableInfo("CPC", "table", None, (
+    ColumnInfo("ID_CPC_TABLE", 0, "INTEGER", False),
+    ColumnInfo("ID_KLIENT", 1, "INTEGER", False),
+    ColumnInfo("ID_MASZYNA", 2, "INTEGER", False),
+    ColumnInfo("ID_UMOWACPC", 3, "INTEGER", False),
+    ColumnInfo("LICZNIK_MONO_START", 4, "INTEGER", True),
+    ColumnInfo("LICZNIK_MONO_END", 5, "INTEGER", True),
+    ColumnInfo("ROK", 6, "INTEGER", True),
+    ColumnInfo("MIESIAC", 7, "INTEGER", True),
+    ColumnInfo("IDVAT", 8, "INTEGER", False),
+    ColumnInfo("OPLATA_SUMA", 9, "DECIMAL(10,4)", True),
+    ColumnInfo("KOSZTY", 10, "DECIMAL(10,4)", True),
+    ColumnInfo("WYNIK", 11, "DECIMAL(10,4)", True),
+    ColumnInfo("UWAGI", 12, "VARCHAR(500)", True),
+))
+CPC_PAYLOAD = {"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3,
+               "rok": 2026, "miesiac": 11}
+CPC_ROW = (101, 7, 9, 3, None, None, 2026, 11, 0, 0, 0, 0, "")
+CPC_RETURNING = (
+    '"ID_CPC_TABLE", "ID_KLIENT", "ID_MASZYNA", "ID_UMOWACPC", '
+    '"LICZNIK_MONO_START", "LICZNIK_MONO_END", "ROK", "MIESIAC", "IDVAT", '
+    '"OPLATA_SUMA", "KOSZTY", "WYNIK", "UWAGI"'
+)
+
+
+def test_create_cpc_merges_legacy_profile_and_commits() -> None:
+    pool = _Pool([(None, [CPC_ROW])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    result = service.create_cpc(CPC_PAYLOAD)
+    assert pool.executed == [(
+        'INSERT INTO "CPC" ("ID_KLIENT", "ID_MASZYNA", "ID_UMOWACPC", "ROK", '
+        '"MIESIAC", "IDVAT", "OPLATA_SUMA", "KOSZTY", "WYNIK", "UWAGI") '
+        f'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {CPC_RETURNING}',
+        [7, 9, 3, 2026, 11, 0, 0, 0, 0, ""],
+    )]
+    assert result["id_cpc_table"] == 101
+    assert pool.committed == 1
+
+
+def test_create_cpc_supplied_values_override_defaults() -> None:
+    pool = _Pool([(None, [CPC_ROW])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    service.create_cpc({**CPC_PAYLOAD, "oplata_suma": 100, "uwagi": " TEST "})
+    assert pool.executed[0][1] == [7, 9, 3, 2026, 11, 100, "TEST", 0, 0, 0]
+
+
+@pytest.mark.parametrize("change", [
+    {"id_klient": None}, {"id_maszyna": 0}, {"id_umowacpc": True},
+    {"rok": 0}, {"rok": 10000}, {"miesiac": 13},
+    {"id_cpc_table": 1}, {"uwagi": "x" * 501},
+])
+def test_create_cpc_rejects_invalid_input(change: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.create_cpc({**CPC_PAYLOAD, **change})
+    assert pool.executed == []
+
+
+def test_fetch_cpc_combines_search_filters_and_paging() -> None:
+    pool = _Pool([(None, [(1,)]), (None, [CPC_ROW])])
+    service = make_projection_service(pool, CPC_STUB)
+    result = service.fetch_cpc(limit=2, offset=3, search="test", filters=(
+        '{"id_maszyna":9,"rok":2026}'
+    ))
+    assert result["cpc"][0]["id_cpc_table"] == 101
+    assert result["total"] == 1
+    assert pool.executed[0][1] == ["%test%", 9, 2026]
+    assert ' AND "ID_MASZYNA" = ? AND "ROK" = ?' in pool.executed[0][0]
+    assert pool.executed[1][0].endswith('ORDER BY "ID_CPC_TABLE" ROWS 4 TO 5')
+    assert pool.committed == 0
+
+
+def test_get_cpc_uses_generated_key() -> None:
+    pool = _Pool([(None, [CPC_ROW])])
+    service = make_projection_service(pool, CPC_STUB)
+    assert service.get_cpc(101)["id_maszyna"] == 9
+    assert pool.executed == [(
+        f'SELECT {CPC_RETURNING} FROM "CPC" WHERE "ID_CPC_TABLE" = ?', [101]
+    )]
+
+
+def test_update_cpc_changes_only_supplied_fields() -> None:
+    pool = _Pool([(None, [CPC_ROW])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    service.update_cpc(101, {"licznik_mono_end": 1500, "uwagi": None})
+    assert pool.executed == [(
+        'UPDATE "CPC" SET "LICZNIK_MONO_END" = ?, "UWAGI" = ? '
+        f'WHERE "ID_CPC_TABLE" = ? RETURNING {CPC_RETURNING}',
+        [1500, None, 101],
+    )]
+    assert pool.committed == 1
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"id_klient": 8}, {"id_maszyna": 10}, {"id_umowacpc": 4},
+    {"id_cpc_table": 2}, {"miesiac": 13}, {"rok": None}, {"idvat": None},
+])
+def test_update_cpc_rejects_invalid_fields(payload: Any) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    with pytest.raises(InvalidRequest):
+        service.update_cpc(101, payload)
+    assert pool.executed == []
+
+
+def test_delete_cpc_uses_builder_and_commits() -> None:
+    pool = _Pool([(None, [(101,)])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    assert service.delete_cpc(101) is None
+    assert pool.executed == [(
+        'DELETE FROM "CPC" WHERE "ID_CPC_TABLE" = ? RETURNING "ID_CPC_TABLE"', [101]
+    )]
+    assert pool.committed == 1
+
+
+@pytest.mark.parametrize("method", ["update_cpc", "delete_cpc"])
+@pytest.mark.parametrize("row", [None, (None,) * 13])
+def test_missing_cpc_write_rolls_back(method: str, row: Any) -> None:
+    pool = _Pool([(None, [] if row is None else [row])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    args = (101, {"uwagi": "TEST"}) if method == "update_cpc" else (101,)
+    with pytest.raises(RecordNotFound):
+        getattr(service, method)(*args)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("method", ["create_cpc", "update_cpc", "delete_cpc"])
+def test_cpc_writes_are_disabled_by_default(method: str) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, CPC_STUB)
+    args = (CPC_PAYLOAD,) if method == "create_cpc" else (
+        (101, {"uwagi": "TEST"}) if method == "update_cpc" else (101,)
+    )
+    with pytest.raises(WritesDisabled):
+        getattr(service, method)(*args)
+    assert pool.executed == []
+
+
+@pytest.mark.parametrize("method", ["create_cpc", "update_cpc", "delete_cpc"])
+def test_cpc_database_failure_rolls_back(method: str) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    args = (CPC_PAYLOAD,) if method == "create_cpc" else (
+        (101, {"uwagi": "TEST"}) if method == "update_cpc" else (101,)
+    )
+    with pytest.raises(IndexError):
+        getattr(service, method)(*args)
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("key", [-1, True, "101"])
+def test_cpc_validates_record_key(key: Any) -> None:
+    service = make_projection_service(_Pool([]), CPC_STUB, allow_writes=True)
+    for method, args in [(service.get_cpc, (key,)),
+                         (service.update_cpc, (key, {"uwagi": "TEST"})),
+                         (service.delete_cpc, (key,))]:
+        with pytest.raises(InvalidRequest):
+            method(*args)
+
+
+def test_get_cpc_reports_missing_record() -> None:
+    service = make_projection_service(_Pool([(None, [])]), CPC_STUB)
+    with pytest.raises(RecordNotFound):
+        service.get_cpc(101)
+
+
+def test_get_cpc_accepts_legacy_zero_record_key() -> None:
+    row = (0, *CPC_ROW[1:])
+    pool = _Pool([(None, [row])])
+    service = make_projection_service(pool, CPC_STUB)
+    assert service.get_cpc(0)["id_cpc_table"] == 0
+    assert pool.executed[0][1] == [0]
+
+
+@pytest.mark.parametrize("period, expected", [
+    ({}, (2027, 1)), ({"rok": 2025}, (2025, 1)),
+    ({"miesiac": 12}, (2027, 12)), ({"rok": None, "miesiac": None}, (2027, 1)),
+])
+def test_create_cpc_defaults_missing_period_from_database_date(
+    period: dict[str, Any], expected: tuple[int, int],
+) -> None:
+    import datetime as dt
+    import re
+
+    row = (*CPC_ROW[:6], *expected, *CPC_ROW[8:])
+    pool = _Pool([(None, [(dt.date(2027, 1, 1),)]), (None, [row])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    result = service.create_cpc({"id_klient": 7, "id_maszyna": 9,
+                               "id_umowacpc": 3, **period})
+    assert pool.executed[0] == ("SELECT CURRENT_DATE FROM RDB$DATABASE", None)
+    sql, params = pool.executed[1]
+    columns = re.findall(r'"([^"]+)"', sql.split("VALUES")[0])[1:]
+    inserted = dict(zip(columns, params))
+    assert (inserted["ROK"], inserted["MIESIAC"]) == expected
+    assert (result["rok"], result["miesiac"]) == expected
+    assert pool.committed == 1
+
+
+def test_create_cpc_rolls_back_when_database_date_is_missing() -> None:
+    pool = _Pool([(None, [])])
+    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    from ks_adapter.errors import DatabaseUnavailable
+
+    with pytest.raises(DatabaseUnavailable):
+        service.create_cpc({"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3})
+    assert pool.committed == 0
+    assert pool.rolled_back == 1

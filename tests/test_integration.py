@@ -997,3 +997,124 @@ def test_agreement_links_reject_duplicate_machine_business_ids(
         if agreement is not None:
             delete_agreement(write_service, agreement["id_umowacpc_table"])
         delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_cpc_crud_and_native_parent_aggregate_triggers(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER CPC TEST"})
+    agreement = None
+    machine = None
+    settlements = []
+
+    def totals(table: str, key: str, value: int) -> dict[str, Any]:
+        return write_service.fetch_rows(
+            table, filters=json.dumps({key: value})
+        )["rows"][0]
+
+    try:
+        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        machine = write_service.create_machine({
+            "id_klient": owner["id_klient"], "id_umowacpc": agreement["id_umowacpc"],
+        })
+        payload = {"id_klient": owner["id_klient"],
+            "id_maszyna": machine["id_maszyna"],
+            "id_umowacpc": agreement["id_umowacpc"], "rok": 2026, "miesiac": 11}
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.post("/api/v1/cpc-settlement", json={**payload,
+                "licznik_mono_start": 1000, "oplata_suma": "100.00",
+                "koszty": "20.00", "wynik": "80.00", "uwagi": " CPC TEST ",
+            })
+            assert response.status_code == 201
+            created = response.json()
+            settlements.append(created["id_cpc_table"])
+            url = f"/api/v1/cpc-settlement/{created['id_cpc_table']}"
+            assert created["uwagi"] == "CPC TEST"
+            assert created["idvat"] == 0
+            assert created["oplata_kolor"] == 0
+            assert client.get(url).json() == created
+            response = client.get("/api/v1/cpc-settlement", params={
+                "filters": json.dumps({"ID_MASZYNA": machine["id_maszyna"]}),
+                "search": "CPC TEST",
+            })
+            assert response.status_code == 200
+            assert response.json()["total"] == 1
+            assert response.json()["cpc"][0]["id_cpc_table"] == created["id_cpc_table"]
+            for table, key, value in (
+                ("MASZYNA", "ID_MASZYNA_TABLE", machine["id_maszyna_table"]),
+                ("UMOWACPC", "ID_UMOWACPC_TABLE", agreement["id_umowacpc_table"]),
+            ):
+                row = totals(table, key, value)
+                assert row["PRZYCHODY"] == 100
+                assert row["KOSZTY"] == 20
+                assert row["WYNIK"] == 80
+            parents = {key: payload[key] for key in (
+                "id_klient", "id_maszyna", "id_umowacpc",
+            )}
+            before = write_service.run_query(
+                "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"
+            )["rows"][0]["TODAY"]
+            response = client.post("/api/v1/cpc-settlement", json={**parents,
+                "oplata_suma": 200, "koszty": 50, "wynik": 150,
+            })
+            assert response.status_code == 201
+            second = response.json()
+            settlements.append(second["id_cpc_table"])
+            after = write_service.run_query(
+                "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"
+            )["rows"][0]["TODAY"]
+            assert (second["rok"], second["miesiac"]) in {
+                (int(value[:4]), int(value[5:7])) for value in (before, after)
+            }
+            response = client.patch(url, json={"licznik_mono_end": 1500,
+                "oplata_suma": "150.00", "koszty": "25.00", "wynik": "125.00",
+                "uwagi": None,
+            })
+            assert response.status_code == 200
+            updated = response.json()
+            assert updated["licznik_mono_start"] == 1000
+            assert updated["licznik_mono_end"] == 1500
+            assert updated["uwagi"] is None
+            assert client.patch(url, json={}).status_code == 400
+            assert client.patch(url, json={"idvat": None}).status_code == 400
+            for table, key, value in (
+                ("MASZYNA", "ID_MASZYNA_TABLE", machine["id_maszyna_table"]),
+                ("UMOWACPC", "ID_UMOWACPC_TABLE", agreement["id_umowacpc_table"]),
+            ):
+                row = totals(table, key, value)
+                assert row["PRZYCHODY"] == 350
+                assert row["KOSZTY"] == 75
+                assert row["WYNIK"] == 275
+            response = client.delete(url)
+            assert response.status_code == 204
+            assert response.content == b""
+            settlements.remove(created["id_cpc_table"])
+            assert client.get(url).status_code == 404
+            assert client.patch(url, json={"uwagi": "X"}).status_code == 404
+            assert client.delete(url).status_code == 404
+            for table, key, value in (
+                ("MASZYNA", "ID_MASZYNA_TABLE", machine["id_maszyna_table"]),
+                ("UMOWACPC", "ID_UMOWACPC_TABLE", agreement["id_umowacpc_table"]),
+            ):
+                row = totals(table, key, value)
+                assert row["PRZYCHODY"] == 200
+                assert row["KOSZTY"] == 50
+                assert row["WYNIK"] == 150
+    finally:
+        for key in settlements:
+            write_service.delete_cpc(key)
+        if machine is not None:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        if agreement is not None:
+            delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+def test_cpc_reads_work_without_writes_enabled(service: DatabaseService) -> None:
+    page = service.fetch_cpc(limit=1)
+    assert page["count"] <= 1
+    if page["cpc"]:
+        record = page["cpc"][0]
+        assert service.get_cpc(record["id_cpc_table"]) == record

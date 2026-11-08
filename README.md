@@ -3,10 +3,11 @@
 HTTP API (FastAPI) in front of a Firebird database (verified against Firebird 2.5,
 `WIN1250` data).
 
-Requests use quoted identifiers, bound parameters and capped read results. Reads never modify anything; the only writes
-are curated client/machine/agreement inserts and client/machine/agreement updates and client deletions, off
-unless `api.allow_writes` is enabled. Interactive docs are served at `/docs`,
-the developer reference lives in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Requests use quoted identifiers, bound parameters and capped read results.
+Reads never modify anything. Writes are limited to curated client, machine,
+agreement and CPC routes, disabled unless `api.allow_writes` is enabled.
+Interactive docs are served at `/docs`; the developer reference lives in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick start
 
@@ -34,7 +35,7 @@ without touching the file:
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on data/schema requests |
-| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /agreements/{id_umowacpc}`) |
+| `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `PATCH /agreements/{id_umowacpc}`, `POST/PATCH/DELETE /cpc-settlement`) |
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT`, `KS_MAX_QUERY_ROWS` | row caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
@@ -63,6 +64,11 @@ Routes live under `api.prefix` (`/api/v1`).
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
+| `GET` | `/cpc-settlement` | paginated CPC settlement records, search and JSON filters |
+| `GET` | `/cpc-settlement/{id_cpc_table}` | one CPC settlement |
+| `POST` | `/cpc-settlement` | create a CPC settlement |
+| `PATCH` | `/cpc-settlement/{id_cpc_table}` | update settlement readings, counts, charges and notes |
+| `DELETE` | `/cpc-settlement/{id_cpc_table}` | delete a settlement (`204`) |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
 | `POST` | `/schema/refresh` | drop and reload the schema cache |
@@ -202,6 +208,56 @@ PATCH /api/v1/agreements/3
 Content-Type: application/json
 
 {"uwagi": "Updated agreement", "machines": [15, 18]}
+```
+
+`GET /cpc-settlement` returns `{total, count, limit, offset, cpc}` with lower-cased
+settlement column names. It accepts `limit`, `offset`, `search` (invoice number
+and notes), and the same JSON `filters` syntax as the generic row endpoint.
+Use filters for `id_klient`, `id_maszyna`, `id_umowacpc`, `rok` or `miesiac`.
+`GET /cpc-settlement/{id_cpc_table}` returns one record or `404`. Record keys are
+non-negative: existing legacy key `0` is supported.
+
+`POST /cpc-settlement` requires positive `id_klient`, `id_maszyna` and
+`id_umowacpc`. Optional `rok` (1–9999) and `miesiac` (1–12) default independently
+to the database current year/month when omitted or null. Explicit values are
+preserved, including when only one period field is supplied. Updates never
+reapply these defaults. Firebird generates `id_cpc_table`. Optional fields
+include mono/colour/A3/scan start/end readings, copy and page counts, rates,
+recorded charges, costs, invoice reference and notes. Monetary values use
+`DECIMAL(10,4)`; text widths are 50 for `faktura` and 500 for `uwagi`. Omitted
+fields use `CPC_INSERT_DEFAULTS` (the zero/empty values shared by legacy rows)
+or their database defaults. Null/blank optional create fields are omitted.
+
+`PATCH /cpc-settlement/{id_cpc_table}` changes supplied fields only and returns `200`.
+Nullable fields can be cleared with null; blank text becomes an empty string.
+Year/month must retain valid values, and `idvat` cannot be null. Client, machine,
+agreement and generated record IDs cannot change: the legacy update trigger
+refreshes only the NEW parents, so moving a settlement would leave old totals
+stale. An empty patch returns `400`. Unknown fields, invalid values and attempts
+to change parent links return `422`.
+
+`DELETE /cpc-settlement/{id_cpc_table}` returns an empty `204`. Missing records on GET,
+PATCH or DELETE return `404`. Writes require `KS_ALLOW_WRITES=true` and the
+configured API key; reads need only the configured API key.
+
+These routes store supplied readings, counts and financial amounts. They do
+not infer copy counts or calculate charges, VAT, or profit from meter readings.
+Existing database triggers recalculate machine/agreement aggregate costs,
+revenue and profit after CPC insertion, update and deletion, within the same
+transaction. Empty aggregates follow the database's existing NULL behavior.
+
+```http
+POST /api/v1/cpc-settlement
+Content-Type: application/json
+
+{"id_klient": 42, "id_maszyna": 4, "id_umowacpc": 3, "rok": 2026, "miesiac": 11, "licznik_mono_start": 1000, "licznik_mono_end": 1500}
+```
+
+```http
+PATCH /api/v1/cpc-settlement/5
+Content-Type: application/json
+
+{"kopie_mono": 500, "oplata_suma": "25.0000", "uwagi": "Updated settlement"}
 ```
 
 `POST /machines` takes the lower-cased column names of the `GET /machines`

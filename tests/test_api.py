@@ -1058,3 +1058,103 @@ def test_update_agreement_reports_domain_errors(error: Exception, status: int) -
         response = client.patch("/api/v1/agreements/51", json={"machines": [4]})
     assert response.status_code == status
     assert response.json()["error"] == type(error).__name__
+
+
+CPC_REQUEST = {"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3,
+               "rok": 2026, "miesiac": 11}
+
+
+def test_cpc_routes_return_records_and_forward_inputs(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.get("/api/v1/cpc-settlement", params={
+        "limit": 5, "offset": 2, "search": "TEST", "filters": '{"rok":2026}',
+    })
+    assert response.status_code == 200
+    assert response.json()["cpc"][0]["id_cpc_table"] == 101
+    assert fake_service.calls[-1] == {"action": "fetch_cpc", "limit": 5,
+        "offset": 2, "search": "TEST", "filters": '{"rok":2026}'}
+    assert client.get("/api/v1/cpc-settlement/101").json()["id_cpc_table"] == 101
+    response = client.post(
+        "/api/v1/cpc-settlement", json={**CPC_REQUEST, "oplata_suma": "12.34"}
+    )
+    assert response.status_code == 201
+    assert float(response.json()["oplata_suma"]) == 12.34
+    response = client.patch("/api/v1/cpc-settlement/101", json={"uwagi": None})
+    assert response.status_code == 200
+    assert fake_service.calls[-1]["values"] == {"uwagi": None}
+    response = client.delete("/api/v1/cpc-settlement/101")
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+@pytest.mark.parametrize("change", [
+    {"id_klient": 0}, {"id_maszyna": None}, {"miesiac": 13}, {"rok": 10000},
+    {"id_cpc_table": 101}, {"uwagi": "x" * 501},
+    {"oplata_suma": "1.12345"}, {"oplata_suma": "1000000"},
+])
+def test_create_cpc_validates_input(client: TestClient, change: dict[str, Any]) -> None:
+    assert client.post(
+        "/api/v1/cpc-settlement", json={**CPC_REQUEST, **change}
+    ).status_code == 422
+
+
+def test_create_cpc_requires_parents(client: TestClient) -> None:
+    for missing in ("id_klient", "id_maszyna", "id_umowacpc"):
+        assert client.post("/api/v1/cpc-settlement", json={
+            key: value for key, value in CPC_REQUEST.items() if key != missing
+        }).status_code == 422
+
+
+@pytest.mark.parametrize("payload", [
+    {"id_klient": 8}, {"id_maszyna": 10}, {"id_umowacpc": 4},
+    {"id_cpc_table": 2}, {"miesiac": 0}, {"faktura": "x" * 51},
+])
+def test_update_cpc_rejects_invalid_fields(
+    client: TestClient, payload: dict[str, Any],
+) -> None:
+    assert client.patch("/api/v1/cpc-settlement/101", json=payload).status_code == 422
+
+
+def test_all_cpc_routes_require_api_key() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        for method, path, body in [
+            ("GET", "/cpc-settlement", None), ("GET", "/cpc-settlement/101", None),
+            ("POST", "/cpc-settlement", CPC_REQUEST),
+            ("PATCH", "/cpc-settlement/101", {"uwagi": "X"}),
+            ("DELETE", "/cpc-settlement/101", None),
+        ]:
+            assert client.request(
+                method, "/api/v1" + path, json=body
+            ).status_code == 401
+            assert client.request(method, "/api/v1" + path, json=body,
+                headers={"X-API-Key": "secret"}).status_code in (200, 201, 204)
+
+
+@pytest.mark.parametrize("error, status", [(WritesDisabled("Disabled"), 403),
+                                         (RecordNotFound("Missing"), 404)])
+def test_cpc_write_errors_are_rendered(error: Exception, status: int) -> None:
+    class FailingService(FakeService):
+        def update_cpc(
+            self, id_cpc_table: int, values: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            raise error
+
+    with TestClient(create_app(make_settings(), service=FailingService())) as client:
+        response = client.patch("/api/v1/cpc-settlement/101", json={"uwagi": "TEST"})
+    assert response.status_code == status
+    assert response.json()["error"] == type(error).__name__
+
+
+@pytest.mark.parametrize("period", [{}, {"rok": 2027}, {"miesiac": 2},
+                                    {"rok": None, "miesiac": None}])
+def test_create_cpc_accepts_optional_period(
+    client: TestClient, fake_service: FakeService, period: dict[str, Any],
+) -> None:
+    parents = {"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3}
+    response = client.post("/api/v1/cpc-settlement", json={**parents, **period})
+    assert response.status_code == 201
+    assert fake_service.calls[-1]["values"] == {
+        **parents, **{key: value for key, value in period.items() if value is not None},
+    }

@@ -76,8 +76,7 @@ response ◄──────────────────────�
   event loop; concurrency is bounded by the threadpool and `database.pool_size`.
 - Each service call borrows **one** connection. `pool.session()` always rolls it back,
   so no transaction or record lock outlives a read request — together with the query
-  guard that is what keeps every read read-only. `pool.write_session()` (used only by
-  `POST /clients`, `POST /machines` and client updates) commits on success and rolls back on any
+  guard that is what keeps every read read-only. `pool.write_session()` (used by curated writes) commits on success and rolls back on any
   exception.
 - Identifiers can only come from the catalog snapshot (`TableInfo.column_map`); every
   user value is a bound parameter. SQL text is built only in `sql.py`/`service.py`.
@@ -212,6 +211,28 @@ the key through the catalog and uses `sql.build_delete()` to produce
 on success. The existing `DEL_KLIENT_RECORD` trigger deletes matching machines
 and contacts within the same transaction. The route returns an empty `204`.
 
+CPC settlements use `GET /cpc-settlement`, `GET /cpc-settlement/{id_cpc_table}`, `POST /cpc-settlement`,
+`PATCH /cpc-settlement/{id_cpc_table}` and `DELETE /cpc-settlement/{id_cpc_table}`. The generated
+primary key is the only record identifier, including legacy key 0. `fetch_cpc()`
+uses `_projection_page()` with optional JSON filters combined with invoice/notes
+search. `get_cpc()` uses a guarded bound SELECT and returns 404 for no match.
+
+`CPC_COLUMNS` omits internal version bookkeeping. `CpcCreate` requires parent
+IDs; omitted/null year and month come independently from Firebird CURRENT_DATE
+inside the insert transaction, while supplied period values are preserved. `CpcUpdate` permits only settlement fields, preserving
+parent IDs because the legacy trigger recalculates only NEW references.
+`CPC_TEXT_LENGTHS` and Decimal constraints mirror catalog widths/precision.
+`CPC_INSERT_DEFAULTS` records shared zero/empty values from existing CPC rows.
+`create_cpc()` merges defaults with `_insert_plan()`. `update_cpc()` validates
+supplied fields/catalog nullability without applying defaults. `delete_cpc()`
+uses `build_delete()`. All writes use existing SQL builders and `_write_row()`
+inside `write_session()` and require the write gate; missing records roll back.
+
+The native SUM_UMOWA_CPC and DEL_CPC_RECORD triggers recalculate machine and
+agreement aggregates. No settlement pricing or meter-to-charge formula is
+invented by the API; supplied amounts are stored as such. Live tests create
+isolated parents and verify totals across insertion, update and deletion.
+
 ### 1.4 Errors and shutdown
 
 | Raised in | Type | HTTP |
@@ -323,6 +344,7 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 **`service.py`** — `DatabaseService`, the only class the API layer talks to; it owns the
 pool and the schema cache. Methods: `close()`, `health()`, `list_tables()`,
 `describe_table()`, `refresh_schema()`, `fetch_rows()`, `fetch_clients()`,
+`fetch_cpc()`, `get_cpc()`, `create_cpc()`, `update_cpc()`, `delete_cpc()`,
 `fetch_agreements()`, `fetch_machines()`, `fetch_orders()`, `fetch_invoices()`,
 `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`,
 `delete_client()`, `update_machine()`, `update_agreement()`,

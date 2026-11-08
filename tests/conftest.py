@@ -184,6 +184,33 @@ class FakeService:
             "id_maszyna_table": 2001, "id_maszyna": id_maszyna, **values,
         })
 
+    def fetch_cpc(
+        self, *, limit: int | None = None, offset: int = 0,
+        search: str | None = None, filters: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append({"action": "fetch_cpc", "limit": limit, "offset": offset,
+                           "search": search, "filters": filters})
+        return {"total": 1, "count": 1, "limit": limit or 50, "offset": offset,
+                "cpc": [{"id_cpc_table": 101, "rok": 2026, "miesiac": 11}]}
+
+    def get_cpc(self, id_cpc_table: int) -> dict[str, Any]:
+        self.calls.append({"action": "get_cpc", "id_cpc_table": id_cpc_table})
+        return {"id_cpc_table": id_cpc_table, "rok": 2026, "miesiac": 11}
+
+    def create_cpc(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        self.calls.append({"action": "create_cpc", "values": dict(values)})
+        return to_jsonable({"id_cpc_table": 101, **values})
+
+    def update_cpc(
+        self, id_cpc_table: int, values: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        self.calls.append({"action": "update_cpc", "id_cpc_table": id_cpc_table,
+                           "values": dict(values)})
+        return to_jsonable({"id_cpc_table": id_cpc_table, **values})
+
+    def delete_cpc(self, id_cpc_table: int) -> None:
+        self.calls.append({"action": "delete_cpc", "id_cpc_table": id_cpc_table})
+
     def fetch_agreements(
         self,
         *,
