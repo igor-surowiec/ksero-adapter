@@ -30,7 +30,7 @@ HTTP access to a Firebird database.
 
 Identifiers are quoted and values are always bound parameters. Read requests can
 never modify the database; writing routes are `POST /clients`,
-`POST /machines`, `POST /cpc-agreements/{id_klient}`,
+`POST /machines/{id_klient}`, `POST /cpc-agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
 `PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}` and
 `DELETE /clients/{id_klient}` and CPC POST/PATCH/DELETE, all rejected with `403`

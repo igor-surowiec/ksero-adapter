@@ -18,7 +18,8 @@
   pre { background: #f3f3f3; padding: 12px; overflow: auto; max-height: 480px; white-space: pre-wrap; overflow-wrap: anywhere; }
   #status { font-weight: 600; } #description { white-space: pre-wrap; }
   #routes { border: 0; padding: 0; }
-  #route-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  #route-sections { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { #route-sections { grid-template-columns: 1fr; } }
   #route-sections section { border: 1px solid #ccc; border-radius: 4px; padding: 12px; min-width: 0; }
   #route-sections h2 { font-size: 18px; margin: 0 0 10px; }
   #route-sections button { display: block; width: 100%; text-align: left; margin: 6px 0; overflow-wrap: anywhere; border: 1px solid #aaa; border-radius: 4px; background: white; }
@@ -210,9 +211,9 @@ $("request-form").addEventListener("submit", async event => {
     }
     if (!operations.length) throw new Error("No API routes found for " + prefix);
     const groups = new Map([
-      ["clients", "Clients"], ["cpc-agreements", "CPC agreements"],
-      ["machines", "Machines"], ["cpc-settlement", "CPC settlements"],
-      ["orders", "Orders"], ["invoices", "Invoices"],
+      ["clients", "Clients"], ["invoices", "Invoices"], ["orders", "Orders"],
+      ["machines", "Machines"], ["cpc-agreements", "CPC agreements"],
+      ["cpc-settlement", "CPC settlements"],
       ["meta", "Service"]
     ]);
     const sections = new Map();

@@ -63,7 +63,8 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
     assert "post" in paths["/api/v1/clients"]
     assert "/api/v1/cpc-agreements" in paths
     assert "/api/v1/machines" in paths
-    assert "post" in paths["/api/v1/machines"]
+    assert "post" not in paths["/api/v1/machines"]
+    assert "post" in paths["/api/v1/machines/{id_klient}"]
     assert "/api/v1/orders" in paths
     assert "/api/v1/invoices" in paths
 
@@ -523,7 +524,7 @@ def test_create_machine_returns_the_stored_row(
     client: TestClient, fake_service: FakeService
 ) -> None:
     response = client.post(
-        "/api/v1/machines",
+        "/api/v1/machines/7",
         json={"id_klient": 7, "marka": "KONICA", "serial": "SN-0001"},
     )
 
@@ -545,7 +546,7 @@ def test_create_machine_sends_only_the_supplied_fields(
     """``null`` fields are dropped, so the insert keeps the column defaults."""
 
     response = client.post(
-        "/api/v1/machines",
+        "/api/v1/machines/7",
         json={"id_klient": 7, "marka": "KONICA", "serial": None, "uwagi": None},
     )
 
@@ -556,30 +557,38 @@ def test_create_machine_sends_only_the_supplied_fields(
     }
 
 
-@pytest.mark.parametrize("payload", [{}, {"marka": "KONICA"}, {"id_klient": None},
-                                     {"id_klient": 0}])
-def test_create_machine_owner_is_optional(
-    client: TestClient, fake_service: FakeService, payload: dict[str, Any],
+@pytest.mark.parametrize("payload", [
+    {}, {"marka": "KONICA"}, {"id_klient": None}, {"id_klient": 0},
+    {"id_klient": True}, {"id_klient": "7"},
+])
+def test_machine_collection_post_is_removed(
+    client: TestClient, fake_service: FakeService, payload: Any,
 ) -> None:
-    response = client.post("/api/v1/machines", json=payload)
-    assert response.status_code == 201
-    assert response.json()["id_klient"] == 0
-    assert fake_service.calls[-1]["values"] == {
-        key: value for key, value in payload.items() if value is not None
-    }
+    assert client.post("/api/v1/machines", json=payload).status_code == 405
+    assert fake_service.calls == []
 
 
 def test_create_machine_rejects_invalid_owner(client: TestClient) -> None:
-    assert client.post("/api/v1/machines", json={"id_klient": -1}).status_code == 422
-    assert client.post("/api/v1/machines", json={"id_klient": "x"}).status_code == 422
-    assert client.post("/api/v1/machines").status_code == 422
+    assert (
+        client.post(
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": -1},
+        ).status_code == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": "x"},
+        ).status_code == 422
+    )
 
 
 def test_create_machine_rejects_unknown_fields(client: TestClient) -> None:
     """A typo must not be dropped silently, the machine table is wide."""
 
     response = client.post(
-        "/api/v1/machines", json={"id_klient": 7, "markaa": "KONICA"}
+        "/api/v1/machines/7",
+        json={"marka": "KS TEST", "id_klient": 7, "markaa": "KONICA"}
     )
 
     assert response.status_code == 422
@@ -591,19 +600,21 @@ def test_create_machine_rejects_over_long_text_and_bad_dates(
 ) -> None:
     assert (
         client.post(
-            "/api/v1/machines", json={"id_klient": 7, "marka": "x" * 101}
+            "/api/v1/machines/7", json={"id_klient": 7, "marka": "x" * 101}
         ).status_code
         == 422
     )
     assert (
         client.post(
-            "/api/v1/machines", json={"id_klient": 7, "aktywna": "TAK!"}
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": 7, "aktywna": "TAK!"}
         ).status_code
         == 422
     )
     assert (
         client.post(
-            "/api/v1/machines", json={"id_klient": 7, "instalacja": "not-a-date"}
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": 7, "instalacja": "not-a-date"}
         ).status_code
         == 422
     )
@@ -613,10 +624,15 @@ def test_create_machine_requires_api_key() -> None:
     settings = make_settings(api_key="secret")
     app = create_app(settings, service=FakeService())
     with TestClient(app) as client:
-        assert client.post("/api/v1/machines", json={"id_klient": 7}).status_code == 401
+        assert (
+            client.post(
+                "/api/v1/machines/7",
+                json={"marka": "KS TEST", "id_klient": 7},
+            ).status_code == 401
+        )
         allowed = client.post(
-            "/api/v1/machines",
-            json={"id_klient": 7},
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": 7},
             headers={"X-API-Key": "secret"},
         )
         assert allowed.status_code == 201
@@ -629,7 +645,10 @@ def test_create_machine_reports_disabled_writes_as_403() -> None:
 
     app = create_app(make_settings(), service=ReadOnlyService())
     with TestClient(app) as client:
-        response = client.post("/api/v1/machines", json={"id_klient": 7})
+        response = client.post(
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "id_klient": 7},
+        )
 
     assert response.status_code == 403
     assert response.json() == {
@@ -843,7 +862,12 @@ def test_create_agreement_validates_client_path(client: TestClient, key: str) ->
 
 
 def test_create_agreement_old_post_route_is_removed(client: TestClient) -> None:
-    assert client.post("/api/v1/cpc-agreements", json={"id_klient": 42}).status_code == 405
+    assert (
+        client.post(
+            "/api/v1/cpc-agreements",
+            json={"id_klient": 42},
+        ).status_code == 405
+    )
 
 
 def test_update_machine_returns_stored_projection(
@@ -1069,8 +1093,10 @@ def test_create_cpc_accepts_optional_period(
     }
 
 
-@pytest.mark.parametrize("payload", [None, {}, {"marka": "KONICA"},
-                                     {"id_klient": 7}, {"id_klient": None}])
+@pytest.mark.parametrize("payload", [
+    {"marka": "KONICA"}, {"marka": "KONICA", "id_klient": 7},
+    {"marka": "KONICA", "id_klient": None},
+])
 def test_create_machine_with_client_in_path(
     client: TestClient, fake_service: FakeService, payload: Any,
 ) -> None:
@@ -1085,7 +1111,10 @@ def test_create_machine_with_client_in_path(
 
 
 def test_machine_client_path_rejects_conflicting_body(client: TestClient) -> None:
-    response = client.post("/api/v1/machines/7", json={"id_klient": 8})
+    response = client.post(
+        "/api/v1/machines/7",
+        json={"marka": "KS TEST", "id_klient": 8},
+    )
     assert response.status_code == 400
     assert response.json()["error"] == "InvalidRequest"
 
@@ -1093,8 +1122,13 @@ def test_machine_client_path_rejects_conflicting_body(client: TestClient) -> Non
 def test_machine_client_path_validates_id_and_body(client: TestClient) -> None:
     assert client.post("/api/v1/machines/-1").status_code == 422
     assert client.post("/api/v1/machines/invalid").status_code == 422
-    assert client.post("/api/v1/machines/0").status_code == 201
-    assert client.post("/api/v1/machines/7", json={"markaa": "X"}).status_code == 422
+    assert client.post("/api/v1/machines/0").status_code == 422
+    assert (
+        client.post(
+            "/api/v1/machines/7",
+            json={"marka": "KS TEST", "markaa": "X"},
+        ).status_code == 422
+    )
 
 
 def test_machine_client_path_requires_api_key() -> None:
@@ -1102,7 +1136,8 @@ def test_machine_client_path_requires_api_key() -> None:
     with TestClient(app) as client:
         assert client.post("/api/v1/machines/7").status_code == 401
         assert client.post(
-            "/api/v1/machines/7", headers={"X-API-Key": "secret"}
+            "/api/v1/machines/7", json={"marka": "KS TEST"},
+            headers={"X-API-Key": "secret"}
         ).status_code == 201
 
 
@@ -1112,7 +1147,12 @@ def test_machine_client_path_respects_write_gate() -> None:
             raise WritesDisabled("Writes are disabled")
 
     with TestClient(create_app(make_settings(), service=ReadOnlyService())) as client:
-        assert client.post("/api/v1/machines/7").status_code == 403
+        assert (
+            client.post(
+                "/api/v1/machines/7",
+                json={"marka": "KS TEST"},
+            ).status_code == 403
+        )
 
 
 @pytest.mark.parametrize("prefix", ["/api/v1", "/custom/v2"])
@@ -1197,3 +1237,45 @@ def test_delete_agreement_maps_service_errors(error: Exception, status: int) -> 
 @pytest.mark.parametrize("key", ["0", "-1", "invalid"])
 def test_delete_agreement_rejects_invalid_path(client: TestClient, key: str) -> None:
     assert client.delete("/api/v1/cpc-agreements/" + key).status_code == 422
+
+
+@pytest.mark.parametrize("path, body", [
+    ("/api/v1/machines/99", {"marka": "KS TEST"}),
+])
+def test_create_machine_reports_missing_client(path: str, body: Any) -> None:
+    class MissingClientService(FakeService):
+        def create_machine(self, values: Mapping[str, Any]) -> dict[str, Any]:
+            raise RecordNotFound("Client with id_klient 99 not found")
+
+    with TestClient(create_app(
+        make_settings(), service=MissingClientService(),
+    )) as client:
+        response = client.post(path, json=body)
+    assert response.status_code == 404
+    assert response.json()["error"] == "RecordNotFound"
+
+
+@pytest.mark.parametrize("payload", [
+    None, {}, {"marka": None}, {"marka": ""}, {"marka": "   "},
+    {"marka": "\t\n"}, {"marka": 123}, {"marka": "x" * 101},
+])
+def test_create_machine_requires_nonblank_manufacturer(
+    client: TestClient, fake_service: FakeService, payload: Any,
+) -> None:
+    response = client.post("/api/v1/machines/7", json=payload)
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_create_machine_trims_manufacturer(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.post("/api/v1/machines/7", json={"marka": "  KONICA  "})
+    assert response.status_code == 201
+    assert fake_service.calls[-1]["values"] == {"id_klient": 7, "marka": "KONICA"}
+
+
+def test_machine_manufacturer_required_only_for_creation(client: TestClient) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    assert "marka" in schemas["MachineCreate"]["required"]
+    assert "marka" not in schemas["MachineUpdate"].get("required", [])

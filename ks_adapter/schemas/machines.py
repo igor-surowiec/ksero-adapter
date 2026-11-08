@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ..service.machines import MACHINE_TEXT_LENGTHS
 from .common import DecimalValue
@@ -79,10 +80,10 @@ class MachinePage(BaseModel):
 
 
 class MachineCreate(BaseModel):
-    """Payload of ``POST /machines``.
+    """Machine details for ``POST /machines/{id_klient}``; marka is required.
 
-    All fields are optional. An omitted or null ``id_klient`` is stored as
-    ``0`` (unassigned); the ``INS_MASZYNA_RECORD`` trigger assigns
+    The required positive client ID comes from the URL. An optional body owner
+    must match it. The ``INS_MASZYNA_RECORD`` trigger assigns
     ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators and
     the legacy row profile supplies branch/company/VAT/sync flags as 0,
     GRUPA=Druk, AKTYWNA=TAK, KOLOROWA=NIE, RODZAJ_US=Platne and empty text. Caller
@@ -95,8 +96,8 @@ class MachineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id_klient: int | None = Field(
-        default=None, ge=0,
-        description="Owner (KLIENT.ID_KLIENT); omitted, null or 0 means unassigned",
+        default=None, ge=1, strict=True,
+        description="Optional body owner; if provided, must match the URL client ID",
     )
     id_oddzial: int | None = Field(
         default=None, description="Branch (legacy insert default 0)"
@@ -106,10 +107,10 @@ class MachineCreate(BaseModel):
     id_umowacpc: int | None = Field(
         default=None, description="Servicing agreement (UMOWACPC)"
     )
-    marka: str | None = Field(
-        default=None,
+    marka: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        min_length=1,
         max_length=MACHINE_TEXT_LENGTHS["MARKA"],
-        description="Manufacturer",
+        description="Required manufacturer; surrounding whitespace is trimmed",
     )
     model: str | None = Field(
         default=None,
@@ -211,4 +212,9 @@ class MachineUpdate(MachineCreate):
     id_klient: int | None = Field(
         default=None, ge=0,
         description="Owner ID; 0 unassigns, null is rejected on update",
+    )
+    marka: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["MARKA"],
+        description="Manufacturer",
     )

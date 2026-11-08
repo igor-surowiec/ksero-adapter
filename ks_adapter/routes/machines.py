@@ -49,51 +49,28 @@ def create_router(settings: AppSettings) -> APIRouter:
 
 
     @router.post(
-        "/machines",
-        response_model=Machine,
-        status_code=status.HTTP_201_CREATED,
-        tags=["data"],
-        summary="Create a machine (installed device)",
-        description=(
-            "Inserts one row into the MASZYNA table and returns the stored row "
-            "in the same shape as GET /machines (keys are the lower-cased "
-            "column names). All fields are optional; an omitted or null "
-            "id_klient is stored as 0 (unassigned). The "
-            "INS_MASZYNA_RECORD trigger fills ID_MASZYNA_TABLE and ID_MASZYNA "
-            "from their generators. Legacy defaults fill omitted fields: branch, "
-            "company, VAT and sync flags 0; grupa Druk; aktywna TAK; kolorowa NIE; "
-            "rodzaj_us Platne; expected empty text fields. Supplied values "
-            "override those defaults. Unknown fields are rejected with "
-            "422. Requires 'api.allow_writes' (otherwise 403) and, when "
-            "configured, the X-API-Key header."
-        ),
-    )
-    def create_machine(
-        payload: MachineCreate,
-        service: DatabaseService = Depends(get_service),
-    ) -> dict[str, Any]:
-        return service.create_machine(payload.model_dump(exclude_none=True))
-
-
-    @router.post(
         "/machines/{id_klient}",
         response_model=Machine,
         status_code=status.HTTP_201_CREATED,
         tags=["data"],
         summary="Create a machine for a client",
         description=(
-            "Creates a machine with id_klient from the URL. The body is optional "
-            "and accepts the same details and legacy defaults as POST /machines. "
-            "A conflicting body id_klient returns 400. Client ID 0 means "
-            "unassigned. Requires api.allow_writes and the configured X-API-Key."
+            "Creates a machine with id_klient from the URL. The body requires "
+            "a nonblank marka (manufacturer); other machine details are optional. "
+            "Legacy defaults fill omitted "
+            "fields (branch/company/VAT/sync flags 0, grupa Druk, aktywna TAK, "
+            "kolorowa NIE, rodzaj_us Platne and empty text). "
+            "A conflicting body id_klient returns 400. The URL client ID must be "
+            "positive and identify an existing client (otherwise 404). "
+            "Requires api.allow_writes and the configured X-API-Key."
         ),
     )
     def create_client_machine(
-        id_klient: int = Path(ge=0),
-        payload: MachineCreate | None = None,
+        payload: MachineCreate,
+        id_klient: int = Path(ge=1),
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
-        values = payload.model_dump(exclude_none=True) if payload else {}
+        values = payload.model_dump(exclude_none=True)
         if values.get("id_klient", id_klient) != id_klient:
             raise InvalidRequest("Body 'id_klient' must match the URL client ID")
         return service.create_machine({**values, "id_klient": id_klient})

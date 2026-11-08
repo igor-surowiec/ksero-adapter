@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ..errors import ColumnNotFound, InvalidRequest, RecordConflict, RecordNotFound
+from ..errors import (
+    ColumnNotFound, DatabaseUnavailable, InvalidRequest, RecordConflict, RecordNotFound,
+)
 from ..sql import build_insert, build_update, quote_identifier
 from .base import BaseDatabaseService, _insert_plan
+from .clients import CLIENTS_TABLE
 
 
 #: Table holding machines (installed devices) in the BAZAMS schema.
@@ -70,7 +73,7 @@ MACHINE_SEARCH_COLUMNS: tuple[str, ...] = (
     "TECHNIK",
 )
 
-#: Columns ``POST /machines`` accepts, in the order they are inserted.  Every
+#: Columns ``POST /machines/{id_klient}`` accepts, in insertion order. Every
 #: one of them is part of :data:`MACHINE_COLUMNS` as well, so the created row is
 #: served exactly as ``GET /machines`` would return it.  The columns the
 #: application derives from other data stay out of reach: ``LICZNIK_TOTAL`` (the
@@ -115,7 +118,6 @@ MACHINE_WRITE_COLUMNS: tuple[str, ...] = (
 #: Recent native rows use branch 0 despite the column default of 1. Preserve
 #: NULL counters, dates, optional links and aggregates; never copy device data.
 MACHINE_INSERT_DEFAULTS: dict[str, Any] = {
-    "ID_KLIENT": 0,
     "ID_ODDZIAL": 0,
     "ID_FIRMA": 0,
     "IDVAT": 0,
@@ -143,7 +145,7 @@ MACHINE_INSERT_DEFAULTS: dict[str, Any] = {
 
 #: Widths of the ``MASZYNA`` text columns.  Longer values are rejected up front,
 #: otherwise Firebird answers with a string-truncation error instead of a clear
-#: message.  The ``POST /machines`` payload model reuses this mapping, so every
+#: message. The machine-create payload model reuses this mapping, so every
 #: limit is declared in one place.
 MACHINE_TEXT_LENGTHS: dict[str, int] = {
     "MARKA": 100,
@@ -205,7 +207,7 @@ class MachinesService(BaseDatabaseService):
         projection (``{"id_klient": 7, "marka": "KONICA"}``); only the fields of
         :data:`MACHINE_WRITE_COLUMNS` are accepted and only the ones the caller
         supplies override :data:`MACHINE_INSERT_DEFAULTS`, the legacy row profile.
-        ``ID_KLIENT`` defaults to ``0`` (unassigned). The
+        ``ID_KLIENT`` must identify an existing client. The
         ``BEFORE INSERT`` trigger ``INS_MASZYNA_RECORD`` fills
         ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators,
         branch/company/VAT and synchronisation flags are explicitly zeroed,
@@ -219,9 +221,10 @@ class MachinesService(BaseDatabaseService):
         prepared = self._prepared_write_values(
             values, MACHINE_WRITE_COLUMNS, MACHINE_TEXT_LENGTHS
         )
-        owner = prepared.get("ID_KLIENT", 0)
-        if not isinstance(owner, int) or isinstance(owner, bool) or owner < 0:
-            raise InvalidRequest("'id_klient' must be a non-negative integer")
+        owner = prepared.get("ID_KLIENT")
+        self._check_client_id(owner)
+        if not isinstance(prepared.get("MARKA"), str) or not prepared["MARKA"]:
+            raise InvalidRequest("'marka' must be a nonblank string")
 
         info = self.schema.get(MACHINES_TABLE)
         if "ID_KLIENT" not in info.column_map:
@@ -235,10 +238,30 @@ class MachinesService(BaseDatabaseService):
             column for column in MACHINE_COLUMNS if column in info.column_map
         ]
         statement = build_insert(info.name, columns, returning=selected)
-
-        return self._write_row(
-            info.name, selected, statement, params
-        )
+        client_info = self.schema.get(CLIENTS_TABLE)
+        client_key = client_info.column_map.get("ID_KLIENT")
+        if client_key is None:
+            raise InvalidRequest("Client table has no ID_KLIENT key")
+        with self.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(
+                    f"SELECT FIRST 2 {quote_identifier(client_key)} "
+                    f"FROM {quote_identifier(client_info.name)} "
+                    f"WHERE {quote_identifier(client_key)} = ?", [owner],
+                )
+                matches = cursor.fetchall()
+                if not matches:
+                    raise RecordNotFound(f"Client with id_klient {owner} not found")
+                if len(matches) > 1:
+                    raise RecordConflict(f"Multiple clients have id_klient {owner}")
+                cursor.execute(statement, params)
+                row = cursor.fetchone()
+                if row is None:
+                    raise DatabaseUnavailable("Firebird did not return the machine")
+                return self._serialize_row([c.lower() for c in selected], row)
+            finally:
+                cursor.close()
 
     def update_machine(
         self, id_maszyna: int, values: Mapping[str, Any]

@@ -3,7 +3,7 @@
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
 `python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
-read-only by default: the writing routes (`POST /clients`, `POST /machines`, `POST /cpc-agreements/{id_klient}`,
+read-only by default: the writing routes (`POST /clients`, `POST /machines/{id_klient}`, `POST /cpc-agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
 `PATCH /cpc-agreements/{id_umowacpc}`,
 `DELETE /clients/{id_klient}`)
@@ -123,22 +123,25 @@ Variations:
   `INS_KLIENT_RECORD` trigger completed (the generated
   `ID_KLIENT_TABLE`/`ID_KLIENT`), so the answer is the same `Client` projection
   `GET /clients` serves, with `201`.
-- `POST /machines` follows the same shape. The `MachineCreate` body is dumped without
+- `POST /machines/{id_klient}` follows the same shape. The required `MachineCreate` body is dumped without
   its `null` fields, `service.create_machine` maps the keys onto
   `MACHINE_WRITE_COLUMNS` (trimming strings, dropping blanks, rejecting unknown fields
-  and invalid supplied client IDs), keeps only the columns present in the catalog
-  snapshot, merges `MACHINE_INSERT_DEFAULTS` (unassigned owner 0, branch/company/VAT
+  and invalid required client IDs), keeps only the columns present in the catalog
+  snapshot, merges `MACHINE_INSERT_DEFAULTS` (branch/company/VAT
   and sync 0, group Druk, active TAK, colour NIE, paid billing and empty strings) through `_insert_plan()`, and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
   inside `pool.write_session()`. `RETURNING` yields the row `INS_MASZYNA_RECORD`
   completed (generated `ID_MASZYNA_TABLE`/`ID_MASZYNA`), so the answer is a
   `Machine` with `201`. `SYNWP` is explicitly 0, so
   nothing is queued for synchronisation.
 
-`POST /machines/{id_klient}` is an additional machine-create route. It accepts
-optional `MachineCreate` details, rejects a conflicting body owner, and injects
-the non-negative URL owner before calling the same `create_machine()` service.
-It shares the write gate, API key check, native defaults and `201` response.
-The collection POST route remains available for existing callers.
+`POST /machines/{id_klient}` is the only machine-create route. It accepts
+`MachineCreate` details with required nonblank `marka`, rejects a conflicting
+body owner, and injects
+the positive URL owner before calling the same `create_machine()` service.
+The manufacturer is trimmed and checked in both the wire model and service;
+updates override it as optional and retain clearing behavior. Creation shares
+the write gate, API key check, native defaults and `201` response.
+The collection `/machines` route supports GET only.
 
 `POST /cpc-agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
 A positive `ID_KLIENT` comes from the URL path; the optional body contains
@@ -413,10 +416,13 @@ the matching `*_COLUMNS` projection), strings are trimmed, blanks are dropped an
 text value is limited with `CLIENT_TEXT_LENGTHS` / `MACHINE_TEXT_LENGTHS` (mirroring the
 column widths). `create_client()` then requires a non-blank `NAZWA`, merges the payload
 with `CLIENT_INSERT_DEFAULTS` through `_insert_plan()` and inserts the result with
-`RETURNING` built from `CLIENT_COLUMNS`; `create_machine()` accepts an optional non-negative
-`ID_KLIENT`, defaults it to `0` (unassigned) through `MACHINE_INSERT_DEFAULTS`,
-and returns `RETURNING` built from `MACHINE_COLUMNS`.
-`_write_row()` executes each curated write and converts its returned row with
+`RETURNING` built from `CLIENT_COLUMNS`. `create_machine()` requires a positive
+`ID_KLIENT` and checks the client with a bound `SELECT FIRST 2` in the same
+write transaction as the insert. Missing clients raise `RecordNotFound`,
+duplicate IDs raise `RecordConflict`; either rolls back without an insert.
+It returns `RETURNING` built from `MACHINE_COLUMNS`. Machine updates retain
+their existing optional ownership behavior.
+`_write_row()` executes the simple curated writes and converts its returned row with
 `_serialize_row()` before committing. Missing update targets and conversion
 failures therefore roll back the transaction. `_serialize_row()` also handles
 curated reads through the shared `serialization.row_to_dict()` helper.
@@ -450,7 +456,7 @@ password is supplied without committing it). `database.path` is deliberately rel
 is resolved against the project root, `database.charset` and `api.blob_encoding` must
 describe the same encoding, an empty `api_key` disables authentication, empty
 `cors_origins` skips the middleware and `allow_writes` is the switch that turns the
-`POST /clients` and `POST /machines` write paths on.
+`POST /clients` and `POST /machines/{id_klient}` write paths on.
 
 **`tests/`** — the pytest suite: `conftest.py` (settings fixture, `FakeService`, app and
 client fixtures), `test_api.py` (routes through `TestClient`), `test_service.py`

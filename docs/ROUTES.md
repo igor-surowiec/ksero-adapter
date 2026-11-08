@@ -28,8 +28,7 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `PATCH` | `/cpc-agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `DELETE` | `/cpc-agreements/{id_umowacpc}` | delete an unreferenced agreement (`204`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
-| `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
-| `POST` | `/machines/{id_klient}` | create a machine with the client ID from the URL |
+| `POST` | `/machines/{id_klient}` | create a machine; client ID from the URL and nonblank `marka` required |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
 | `GET` | `/cpc-settlement` | paginated CPC settlement records, search and JSON filters |
 | `GET` | `/cpc-settlement/{id_cpc_table}` | one CPC settlement |
@@ -245,11 +244,15 @@ Content-Type: application/json
 
 ## Machines
 
-`POST /machines` takes the lower-cased column names of the `GET /machines`
+`POST /machines/{id_klient}` takes the lower-cased column names of the `GET /machines`
 projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
-one `MASZYNA` row. All fields are optional, so `{}` is valid. An omitted, `null`
-or zero `id_klient` means unassigned and is stored as `0`, because
-`MASZYNA.ID_KLIENT` cannot be NULL. Negative client IDs are rejected.
+one `MASZYNA` row. The URL `id_klient` must be a positive integer identifying
+an existing `KLIENT.ID_KLIENT`. Invalid path IDs return `422`; a missing
+client returns `404` and an ambiguous client ID returns `409`. No machine is
+inserted on failure. The JSON body must contain a nonblank `marka`
+(manufacturer, at most 100 characters). Missing, null, empty and whitespace-only
+manufacturer values return `422`. Surrounding whitespace is trimmed. Other
+machine details are optional.
 `INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA`.
 `MACHINE_INSERT_DEFAULTS` reproduces the native row profile: branch/company/VAT
 and sync flags `0`, printer group `grupa = "Druk"`, `aktywna = "TAK"`, `kolorowa
@@ -264,10 +267,10 @@ Application-maintained fields (`licznik_total`, `last_m`, `last_w`, `next_w`,
 `koszty`, `przychody`, `wynik`, `synwp`) cannot be supplied directly.
 
 `POST /machines/{id_klient}` creates a machine with its owner taken from the
-URL. It uses the same validation and legacy defaults as `POST /machines`, with
-an optional body of machine details (or no body). A body `id_klient` may be
+URL, with required `marka` in the JSON body. A body `id_klient` may be
 omitted, null, or match the URL; a conflicting value returns `400`. URL client
-ID `0` creates an unassigned machine. The response is the stored machine with
+ID must be positive and identify an existing client; `0` returns `422` and
+a missing client returns `404`. The response is the stored machine with
 `201`; writes enabled and the configured API key are required.
 
 ```http
@@ -279,7 +282,7 @@ Content-Type: application/json
 
 `PATCH /machines/{id_maszyna}` updates an existing machine by `ID_MASZYNA` (the
 business identifier returned by `GET /machines`). It accepts the same writable
-fields as `POST /machines`, all optional. Only supplied fields change; omitted
+fields as `POST /machines/{id_klient}`, all optional. Only supplied fields change; omitted
 fields and defaults remain untouched. Strings are trimmed; `""` clears text and
 `null` clears nullable fields. Set `id_klient` to `0` to unassign the machine;
 null is rejected for ownership and other non-nullable columns. Generated keys
@@ -300,7 +303,7 @@ curl -X PATCH http://127.0.0.1:8000/api/v1/machines/4 -H 'Content-Type: applicat
 curl 'http://127.0.0.1:8000/api/v1/orders?limit=50&search=przeglad'
 curl 'http://127.0.0.1:8000/api/v1/invoices?limit=20&search=2026'
 curl -X POST http://127.0.0.1:8000/api/v1/clients -H 'Content-Type: application/json' -d '{"nazwa": "ACME Sp. z o.o.", "nip": "1234567890", "poczta": "Warszawa"}'
-curl -X POST http://127.0.0.1:8000/api/v1/machines -H 'Content-Type: application/json' -d '{"id_klient": 42, "marka": "KONICA", "model": "C224", "serial": "SN-0001", "instalacja": "2026-01-02"}'
+curl -X POST http://127.0.0.1:8000/api/v1/machines/42 -H 'Content-Type: application/json' -d '{"id_klient": 42, "marka": "KONICA", "model": "C224", "serial": "SN-0001", "instalacja": "2026-01-02"}'
 ```
 
 ## CPC filters

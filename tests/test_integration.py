@@ -496,7 +496,7 @@ def test_create_machine_endpoint_over_http(write_service: DatabaseService) -> No
     app = create_app(write_service.settings, service=write_service)
     with TestClient(app) as client:
         response = client.post(
-            "/api/v1/machines",
+            f"/api/v1/machines/{owner['id_klient']}",
             json={"id_klient": owner["id_klient"], "serial": serial, "marka": "KS"},
         )
     body = response.json()
@@ -552,7 +552,9 @@ def test_delete_client_endpoint_removes_client_and_trigger_managed_machine(
     machine = None
     try:
         other = write_service.create_client({"nazwa": "KS ADAPTER KEEP TEST"})
-        machine = write_service.create_machine({"id_klient": owner["id_klient"]})
+        machine = write_service.create_machine({
+            "marka": "KS TEST", "id_klient": owner["id_klient"],
+        })
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
             url = f"/api/v1/clients/{owner['id_klient']}"
@@ -587,25 +589,16 @@ def test_delete_client_is_refused_without_allow_writes(
 @requires_writable
 @pytest.mark.parametrize("payload", [{}, {"id_klient": None}, {"id_klient": 0},
                                      {"marka": "KS ADAPTER UNASSIGNED TEST"}])
-def test_create_machine_endpoint_without_owner(
+def test_removed_machine_collection_post_does_not_insert(
     write_service: DatabaseService, payload: dict[str, object],
 ) -> None:
-    app = create_app(write_service.settings, service=write_service)
-    with TestClient(app) as client:
-        response = client.post("/api/v1/machines", json=payload)
-    assert response.status_code == 201
-    machine = response.json()
-    try:
-        assert machine["id_klient"] == 0
-        assert machine["id_maszyna"]
-        stored = write_service.fetch_rows(
-            "MASZYNA", filters=json.dumps({
-                "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
-            }),
-        )["rows"][0]
-        assert stored["ID_KLIENT"] == 0
-    finally:
-        delete_machine(write_service, machine["id_maszyna_table"])
+    before = write_service.fetch_rows("MASZYNA", limit=1)["total"]
+    with TestClient(create_app(
+        write_service.settings, service=write_service,
+    )) as client:
+        assert client.post("/api/v1/machines", json=payload).status_code == 405
+    assert write_service.fetch_rows("MASZYNA", limit=1)["total"] == before
+
 
 
 def delete_agreement(service: DatabaseService, key: int) -> None:
@@ -629,7 +622,8 @@ def test_create_agreement_endpoint_stores_fields_and_legacy_defaults(
     try:
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
-            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}", json={
+            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}",
+            json={
                 "umowa": " KS ADAPTER AGREEMENT TEST ", "u_start": "2026-11-08",
                 "rabat": "2.5000", "termin": 14, "aktywna": "TAK",
             })
@@ -814,10 +808,13 @@ def test_update_machine_rejects_ambiguous_id_over_http(
 ) -> None:
     from ks_adapter.sql import build_update
 
+    owner = write_service.create_client({"nazwa": "KS ADAPTER MACHINE OWNER TEST"})
     machines = []
     try:
         for model in ("FIRST", "SECOND"):
-            machines.append(write_service.create_machine({"model": model}))
+            machines.append(write_service.create_machine({"marka": "KS TEST",
+                "id_klient": owner["id_klient"], "model": model,
+            }))
         with write_service.pool.write_session() as connection:
             cursor = connection.cursor()
             try:
@@ -842,6 +839,8 @@ def test_update_machine_rejects_ambiguous_id_over_http(
     finally:
         for machine in machines:
             delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
 
 
 def test_update_machine_is_refused_without_allow_writes(
@@ -872,7 +871,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
         original = write_service.create_agreement({"id_klient": owner["id_klient"]})
         agreements.append(original)
         for _ in range(3):
-            machines.append(write_service.create_machine({
+            machines.append(write_service.create_machine({"marka": "KS TEST",
                 "id_klient": owner["id_klient"],
                 "id_umowacpc": original["id_umowacpc"], "model": "LINK TEST",
             }))
@@ -962,7 +961,7 @@ def test_agreement_links_reject_duplicate_machine_business_ids(
     try:
         agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
         for _ in range(2):
-            machines.append(write_service.create_machine({
+            machines.append(write_service.create_machine({"marka": "KS TEST",
                 "id_klient": owner["id_klient"],
             }))
         with write_service.pool.write_session() as connection:
@@ -1009,7 +1008,7 @@ def test_cpc_crud_and_native_parent_aggregate_triggers(
 
     try:
         agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
-        machine = write_service.create_machine({
+        machine = write_service.create_machine({"marka": "KS TEST",
             "id_klient": owner["id_klient"], "id_umowacpc": agreement["id_umowacpc"],
         })
         payload = {"id_klient": owner["id_klient"],
@@ -1127,15 +1126,17 @@ def test_create_machine_matches_recent_legacy_native_row_profile(
     if not reference:
         pytest.skip("requires a recent native machine profile")
     app = create_app(write_service.settings, service=write_service)
+    owner = write_service.create_client({"nazwa": "KS ADAPTER PROFILE OWNER TEST"})
     machine = None
     try:
         with TestClient(app) as client:
-            response = client.post("/api/v1/machines", json={
+            response = client.post(f"/api/v1/machines/{owner['id_klient']}", json={
+                "id_klient": owner["id_klient"],
                 "marka": "KS ADAPTER LEGACY PROFILE TEST",
             })
         assert response.status_code == 201
         machine = response.json()
-        assert machine["id_klient"] == 0
+        assert machine["id_klient"] == owner["id_klient"]
         assert machine["id_oddzial"] == 0
         assert machine["id_firma"] == 0
         assert machine["aktywna"] == "TAK"
@@ -1156,24 +1157,31 @@ def test_create_machine_matches_recent_legacy_native_row_profile(
     finally:
         if machine is not None:
             delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
 
 
 @requires_writable
 def test_create_machine_caller_can_override_legacy_flags(
     write_service: DatabaseService,
 ) -> None:
-    created = write_service.create_machine({
-        "marka": "KS ADAPTER OVERRIDE TEST", "id_oddzial": 1,
-        "aktywna": "NIE", "kolorowa": "TAK", "rodzaj_us": "CPC", "grupa": "Komp",
-    })
+    owner = write_service.create_client({"nazwa": "KS ADAPTER FLAGS OWNER TEST"})
+    created = None
     try:
+        created = write_service.create_machine({
+            "id_klient": owner["id_klient"],
+            "marka": "KS ADAPTER OVERRIDE TEST", "id_oddzial": 1,
+            "aktywna": "NIE", "kolorowa": "TAK", "rodzaj_us": "CPC", "grupa": "Komp",
+        })
         assert created["id_oddzial"] == 1
         assert created["aktywna"] == "NIE"
         assert created["kolorowa"] == "TAK"
         assert created["rodzaj_us"] == "CPC"
         assert created["grupa"] == "Komp"
     finally:
-        delete_machine(write_service, created["id_maszyna_table"])
+        if created is not None:
+            delete_machine(write_service, created["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
 
 
 @requires_writable
@@ -1185,7 +1193,10 @@ def test_create_machine_client_path_uses_legacy_defaults(
     try:
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
-            response = client.post(f"/api/v1/machines/{owner['id_klient']}")
+            response = client.post(
+                f"/api/v1/machines/{owner['id_klient']}",
+                json={"marka": "KS TEST"},
+            )
         assert response.status_code == 201
         machine = response.json()
         assert machine["id_klient"] == owner["id_klient"]
@@ -1210,7 +1221,7 @@ def test_delete_agreement_endpoint_and_link_conflict(
     try:
         agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
         key = agreement["id_umowacpc"]
-        machine = write_service.create_machine({
+        machine = write_service.create_machine({"marka": "KS TEST",
             "id_klient": owner["id_klient"], "id_umowacpc": key,
         })
         with TestClient(create_app(
@@ -1238,4 +1249,44 @@ def test_delete_agreement_endpoint_and_link_conflict(
             delete_machine(write_service, machine["id_maszyna_table"])
         if agreement:
             delete_agreement(write_service, agreement["id_umowacpc_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+@requires_writable
+def test_create_machine_rejects_nonexistent_client_without_inserting(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER MISSING OWNER TEST"})
+    key = owner["id_klient"]
+    delete_client(write_service, owner["id_klient_table"])
+    before = write_service.fetch_rows("MASZYNA", limit=1)["total"]
+    with TestClient(create_app(
+        write_service.settings, service=write_service,
+    )) as client:
+        for path, body in [
+            (f"/api/v1/machines/{key}", {"marka": "KS TEST"}),
+        ]:
+            response = client.post(path, json=body)
+            assert response.status_code == 404
+            assert response.json()["error"] == "RecordNotFound"
+    assert write_service.fetch_rows("MASZYNA", limit=1)["total"] == before
+
+
+@requires_writable
+@pytest.mark.parametrize("payload", [None, {}, {"marka": None}, {"marka": "   "}])
+def test_create_machine_rejects_missing_manufacturer_without_inserting(
+    write_service: DatabaseService, payload: Any,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER REQUIRED MARKA TEST"})
+    try:
+        before = write_service.fetch_rows("MASZYNA", limit=1)["total"]
+        with TestClient(create_app(
+            write_service.settings, service=write_service,
+        )) as client:
+            response = client.post(
+                f"/api/v1/machines/{owner['id_klient']}", json=payload,
+            )
+        assert response.status_code == 422
+        assert write_service.fetch_rows("MASZYNA", limit=1)["total"] == before
+    finally:
         delete_client(write_service, owner["id_klient_table"])
