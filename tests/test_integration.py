@@ -486,7 +486,7 @@ def test_create_machine_stores_the_supplied_fields(
         assert machine["serial"] == serial
         assert machine["instalacja"] == "2026-01-02"
         assert machine["uwagi"] == "wpis testowy"
-        assert machine["aktywna"] is None
+        assert machine["aktywna"] == "TAK"
 
         page = write_service.fetch_machines(search=serial, limit=5)
         assert [row["id_maszyna_table"] for row in page["machines"]] == [
@@ -757,11 +757,16 @@ def test_create_agreement_defaults_match_legacy_reference(
             before["rows"][0]["TODAY"], after["rows"][0]["TODAY"],
         }
         assert agreement["aktywna"] == "TAK"
+        assert agreement["umowa"] in {
+            f"{agreement['id_umowacpc']}/{value[:4]}"
+            for value in (before["rows"][0]["TODAY"], after["rows"][0]["TODAY"])
+        }
         stored = write_service.fetch_rows("UMOWACPC", filters=json.dumps({
             "ID_UMOWACPC_TABLE": agreement["id_umowacpc_table"],
         }))["rows"][0]
         excluded = {"ID_UMOWACPC_TABLE", "ID_UMOWACPC", "ID_KLIENT",
-                    "UMOWA", "TYP", "U_START"}
+                    "UMOWA", "TYP", "U_START", "KOSZTY", "PRZYCHODY", "WYNIK"}
+        assert all(stored[name] is None for name in ("KOSZTY", "PRZYCHODY", "WYNIK"))
         differences = [name for name in stored if name not in excluded
                        and stored[name] != reference[0][name]]
         # Report only column names, never customer record values.
@@ -1118,3 +1123,89 @@ def test_cpc_reads_work_without_writes_enabled(service: DatabaseService) -> None
     if page["cpc"]:
         record = page["cpc"][0]
         assert service.get_cpc(record["id_cpc_table"]) == record
+
+
+@requires_writable
+def test_create_machine_matches_recent_legacy_native_row_profile(
+    write_service: DatabaseService,
+) -> None:
+    # Select a native blank machine profile without copying device/customer data
+    # into fixtures. Branch 0 is what recent native entries actually store.
+    reference = write_service.fetch_rows("MASZYNA", filters=json.dumps({
+        "AKTYWNA": "TAK", "SYNWP": 0, "ID_ODDZIAL": 0,
+        "RODZAJ_US": "P\u0142atne", "MODEL": "",
+    }), order_by="ID_MASZYNA_TABLE DESC", limit=1)["rows"]
+    if not reference:
+        pytest.skip("requires a recent native machine profile")
+    app = create_app(write_service.settings, service=write_service)
+    machine = None
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/machines", json={
+                "marka": "KS ADAPTER LEGACY PROFILE TEST",
+            })
+        assert response.status_code == 201
+        machine = response.json()
+        assert machine["id_klient"] == 0
+        assert machine["id_oddzial"] == 0
+        assert machine["id_firma"] == 0
+        assert machine["aktywna"] == "TAK"
+        assert machine["kolorowa"] == "NIE"
+        assert machine["grupa"] == "Druk"
+        assert machine["rodzaj_us"] == "P\u0142atne"
+        stored = write_service.fetch_rows("MASZYNA", filters=json.dumps({
+            "ID_MASZYNA_TABLE": machine["id_maszyna_table"],
+        }))["rows"][0]
+        # The reference may have been assigned to an agreement since creation.
+        assert stored["ID_UMOWACPC"] is None
+        excluded = {"ID_MASZYNA_TABLE", "ID_MASZYNA", "ID_KLIENT",
+                    "ID_UMOWACPC", "MARKA"}
+        differences = [name for name in stored if name not in excluded
+                       and stored[name] != reference[0][name]]
+        # Fail with column names only, never expose native record values.
+        assert not differences, differences
+    finally:
+        if machine is not None:
+            delete_machine(write_service, machine["id_maszyna_table"])
+
+
+@requires_writable
+def test_create_machine_caller_can_override_legacy_flags(
+    write_service: DatabaseService,
+) -> None:
+    created = write_service.create_machine({
+        "marka": "KS ADAPTER OVERRIDE TEST", "id_oddzial": 1,
+        "aktywna": "NIE", "kolorowa": "TAK", "rodzaj_us": "CPC", "grupa": "Komp",
+    })
+    try:
+        assert created["id_oddzial"] == 1
+        assert created["aktywna"] == "NIE"
+        assert created["kolorowa"] == "TAK"
+        assert created["rodzaj_us"] == "CPC"
+        assert created["grupa"] == "Komp"
+    finally:
+        delete_machine(write_service, created["id_maszyna_table"])
+
+
+@requires_writable
+def test_create_machine_client_path_uses_legacy_defaults(
+    write_service: DatabaseService,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER MACHINE PATH TEST"})
+    machine = None
+    try:
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.post(f"/api/v1/machines/{owner['id_klient']}")
+        assert response.status_code == 201
+        machine = response.json()
+        assert machine["id_klient"] == owner["id_klient"]
+        assert machine["id_maszyna_table"]
+        assert machine["id_maszyna"]
+        assert machine["aktywna"] == "TAK"
+        assert machine["grupa"] == "Druk"
+        assert machine["id_oddzial"] == 0
+    finally:
+        if machine is not None:
+            delete_machine(write_service, machine["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])

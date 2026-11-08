@@ -278,7 +278,7 @@ class AgreementCreate(BaseModel):
     id_firma: int | None = Field(default=None, description="Company")
     umowa: str | None = Field(
         default=None, max_length=AGREEMENT_TEXT_LENGTHS["UMOWA"],
-        description="Agreement number",
+        description="Agreement number; defaults to generated ID/current database year",
     )
     typ: str | None = Field(
         default=None, max_length=AGREEMENT_TEXT_LENGTHS["TYP"],
@@ -341,6 +341,10 @@ class AgreementUpdate(AgreementCreate):
     Omitted columns stay unchanged; defaults apply only to creation.
     """
 
+    umowa: str | None = Field(
+        default=None, max_length=AGREEMENT_TEXT_LENGTHS["UMOWA"],
+        description="Agreement number; omitted keeps current value",
+    )
     id_klient: int | None = Field(default=None, ge=1, description="Contractor ID")
     u_start: date | None = Field(default=None, description="Start date; null clears")
     aktywna: str | None = Field(
@@ -422,9 +426,10 @@ class MachineCreate(BaseModel):
     All fields are optional. An omitted or null ``id_klient`` is stored as
     ``0`` (unassigned); the ``INS_MASZYNA_RECORD`` trigger assigns
     ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators and
-    ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults, so
-    every other field may be omitted. Other omitted, ``null`` or blank fields
-    are not inserted, leaving their column defaults. Field names are the
+    the legacy row profile supplies branch/company/VAT/sync flags as 0,
+    GRUPA=Druk, AKTYWNA=TAK, KOLOROWA=NIE, RODZAJ_US=Platne and empty text. Caller
+    values override these defaults. Counters, dates and aggregates retain their
+    database defaults. Field names are the
     lower-cased column names and unknown fields are rejected, because a machine
     has many similar columns and a typo would otherwise be dropped silently.
     """
@@ -436,7 +441,7 @@ class MachineCreate(BaseModel):
         description="Owner (KLIENT.ID_KLIENT); omitted, null or 0 means unassigned",
     )
     id_oddzial: int | None = Field(
-        default=None, description="Branch (column default 1)"
+        default=None, description="Branch (legacy insert default 0)"
     )
     id_firma: int | None = Field(default=None, description="Company (column default 0)")
     id_model: int | None = Field(default=None, description="Model dictionary id")
@@ -529,12 +534,12 @@ class MachineCreate(BaseModel):
     aktywna: str | None = Field(
         default=None,
         max_length=MACHINE_TEXT_LENGTHS["AKTYWNA"],
-        description="Raw active flag, e.g. 'TAK'",
+        description="Raw active flag; legacy insert default TAK",
     )
     kolorowa: str | None = Field(
         default=None,
         max_length=MACHINE_TEXT_LENGTHS["KOLOROWA"],
-        description="Raw colour flag, e.g. 'TAK'",
+        description="Raw colour flag; legacy insert default NIE",
     )
 
 

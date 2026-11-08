@@ -461,8 +461,36 @@ MACHINE_WRITE_COLUMNS: tuple[str, ...] = (
     "KOLOROWA",
 )
 
-#: ID_KLIENT is NOT NULL; legacy unassigned machines use 0 instead of NULL.
-MACHINE_INSERT_DEFAULTS: dict[str, Any] = {"ID_KLIENT": 0}
+#: Row profile of newly entered legacy machines. The active/billing/colour flags
+#: and empty strings are application defaults that Firebird does not supply.
+#: Recent native rows use branch 0 despite the column default of 1. Preserve
+#: NULL counters, dates, optional links and aggregates; never copy device data.
+MACHINE_INSERT_DEFAULTS: dict[str, Any] = {
+    "ID_KLIENT": 0,
+    "ID_ODDZIAL": 0,
+    "ID_FIRMA": 0,
+    "IDVAT": 0,
+    "AKTYWNA": "TAK",
+    "KOLOROWA": "NIE",
+    "RODZAJ_US": "P\u0142atne",
+    "SYNWP": 0,
+    "MARKA": "",
+    "MODEL": "",
+    "GRUPA": "Druk",
+    "SERIAL": "",
+    "EWIDENCJA": "",
+    "MKOD": "",
+    "OPCJE": "",
+    "STOI": "",
+    "ADRES": "",
+    "MIEJSCOWOSC": "",
+    "EMAIL": "",
+    "ZALECENIA": "",
+    "UWAGI": "",
+    "TYP": "",
+    "TECHNIK": "",
+    "DETAL20": "",
+}
 
 #: Widths of the ``MASZYNA`` text columns.  Longer values are rejected up front,
 #: otherwise Firebird answers with a string-truncation error instead of a clear
@@ -1219,14 +1247,19 @@ class DatabaseService:
                     raise InvalidRequest("No positive agreement identifiers available")
                 business_id = int(row[0])
                 defaults = dict(AGREEMENT_INSERT_DEFAULTS)
-                if "U_START" not in prepared and "U_START" in info.column_map:
+                need_start = "U_START" not in prepared and "U_START" in info.column_map
+                need_number = "UMOWA" not in prepared and "UMOWA" in info.column_map
+                if need_start or need_number:
                     cursor.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
                     today = cursor.fetchone()
                     if today is None or today[0] is None:
                         raise DatabaseUnavailable(
                             "Firebird did not return current date"
                         )
-                    defaults["U_START"] = today[0]
+                    if need_start:
+                        defaults["U_START"] = today[0]
+                    if need_number:
+                        defaults["UMOWA"] = f"{business_id}/{today[0].year}"
                 columns, params = _insert_plan(prepared, defaults, info.column_map)
                 statement = build_insert(
                     info.name, [key, *columns], returning=selected
@@ -1372,12 +1405,12 @@ class DatabaseService:
         ``values`` is keyed by the lower-cased column names of the curated
         projection (``{"id_klient": 7, "marka": "KONICA"}``); only the fields of
         :data:`MACHINE_WRITE_COLUMNS` are accepted and only the ones the caller
-        supplies are inserted, with ``ID_KLIENT`` defaulting to ``0`` (unassigned).
-        The
+        supplies override :data:`MACHINE_INSERT_DEFAULTS`, the legacy row profile.
+        ``ID_KLIENT`` defaults to ``0`` (unassigned). The
         ``BEFORE INSERT`` trigger ``INS_MASZYNA_RECORD`` fills
         ``ID_MASZYNA_TABLE`` and ``ID_MASZYNA`` from their generators,
-        ``ID_ODDZIAL``/``ID_FIRMA``/``IDVAT`` fall back to their column defaults
-        and ``SYNWP`` stays untouched, so nothing is queued for synchronisation.
+        branch/company/VAT and synchronisation flags are explicitly zeroed,
+        so nothing is queued for synchronisation.
         ``RETURNING`` hands the generated keys back inside the same transaction
         and the response is the projection ``GET /machines`` serves.
 

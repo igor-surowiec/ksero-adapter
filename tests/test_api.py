@@ -1158,3 +1158,49 @@ def test_create_cpc_accepts_optional_period(
     assert fake_service.calls[-1]["values"] == {
         **parents, **{key: value for key, value in period.items() if value is not None},
     }
+
+
+@pytest.mark.parametrize("payload", [None, {}, {"marka": "KONICA"},
+                                     {"id_klient": 7}, {"id_klient": None}])
+def test_create_machine_with_client_in_path(
+    client: TestClient, fake_service: FakeService, payload: Any,
+) -> None:
+    response = client.post(
+        "/api/v1/machines/7", **({"json": payload} if payload is not None else {})
+    )
+    assert response.status_code == 201
+    assert response.json()["id_klient"] == 7
+    assert fake_service.calls[-1] == {"action": "create_machine", "values": {
+        **{k: v for k, v in (payload or {}).items() if v is not None}, "id_klient": 7,
+    }}
+
+
+def test_machine_client_path_rejects_conflicting_body(client: TestClient) -> None:
+    response = client.post("/api/v1/machines/7", json={"id_klient": 8})
+    assert response.status_code == 400
+    assert response.json()["error"] == "InvalidRequest"
+
+
+def test_machine_client_path_validates_id_and_body(client: TestClient) -> None:
+    assert client.post("/api/v1/machines/-1").status_code == 422
+    assert client.post("/api/v1/machines/invalid").status_code == 422
+    assert client.post("/api/v1/machines/0").status_code == 201
+    assert client.post("/api/v1/machines/7", json={"markaa": "X"}).status_code == 422
+
+
+def test_machine_client_path_requires_api_key() -> None:
+    app = create_app(make_settings(api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        assert client.post("/api/v1/machines/7").status_code == 401
+        assert client.post(
+            "/api/v1/machines/7", headers={"X-API-Key": "secret"}
+        ).status_code == 201
+
+
+def test_machine_client_path_respects_write_gate() -> None:
+    class ReadOnlyService(FakeService):
+        def create_machine(self, values: Any) -> dict[str, Any]:
+            raise WritesDisabled("Writes are disabled")
+
+    with TestClient(create_app(make_settings(), service=ReadOnlyService())) as client:
+        assert client.post("/api/v1/machines/7").status_code == 403

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import date
 from typing import Any, Iterator
 
 import pytest
@@ -1466,7 +1467,7 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
     import datetime as dt
     from decimal import Decimal
 
-    row = (9, 84, 7, "KONICA", None, dt.date(2026, 1, 2), Decimal("120.5000"))
+    row = (9, 84, 7, "KONICA", "", dt.date(2026, 1, 2), Decimal("120.5000"))
     pool = _Pool([(MASZYNA_RETURNING, [row])])
     service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
 
@@ -1482,10 +1483,11 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
 
     assert pool.executed == [
         (
-            'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "INSTALACJA", "OPLATA") '
-            'VALUES (?, ?, ?, ?) RETURNING "ID_MASZYNA_TABLE", "ID_MASZYNA", '
+            'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "INSTALACJA", '
+            '"OPLATA", "SERIAL") '
+            'VALUES (?, ?, ?, ?, ?) RETURNING "ID_MASZYNA_TABLE", "ID_MASZYNA", '
             '"ID_KLIENT", "MARKA", "SERIAL", "INSTALACJA", "OPLATA"',
-            [7, "KONICA", dt.date(2026, 1, 2), Decimal("120.5")],
+            [7, "KONICA", dt.date(2026, 1, 2), Decimal("120.5"), ""],
         )
     ]
     assert pool.committed == 1
@@ -1495,7 +1497,7 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
         "id_maszyna": 84,
         "id_klient": 7,
         "marka": "KONICA",
-        "serial": None,
+        "serial": "",
         "instalacja": "2026-01-02",
         "oplata": 120.5,
     }
@@ -1509,11 +1511,12 @@ def test_create_machine_accepts_upper_cased_field_names() -> None:
     service.create_machine({"ID_KLIENT": 7, "Marka": "KONICA"})
 
     assert pool.executed[0][0] == (
-        'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA") VALUES (?, ?) RETURNING '
+        'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "SERIAL") '
+        'VALUES (?, ?, ?) RETURNING '
         '"ID_MASZYNA_TABLE", "ID_MASZYNA", "ID_KLIENT", "MARKA", "SERIAL", '
         '"INSTALACJA", "OPLATA"'
     )
-    assert pool.executed[0][1] == [7, "KONICA"]
+    assert pool.executed[0][1] == [7, "KONICA", ""]
 
 
 def test_create_machine_validates_a_supplied_owner() -> None:
@@ -1793,10 +1796,10 @@ def test_delete_client_rejects_catalog_without_business_identifier() -> None:
 
 
 @pytest.mark.parametrize("values, columns, params", [
-    ({}, '"ID_KLIENT"', [0]),
-    ({"id_klient": None}, '"ID_KLIENT"', [0]),
-    ({"id_klient": 0}, '"ID_KLIENT"', [0]),
-    ({"marka": "KONICA"}, '"MARKA", "ID_KLIENT"', ["KONICA", 0]),
+    ({}, '"ID_KLIENT", "MARKA", "SERIAL"', [0, "", ""]),
+    ({"id_klient": None}, '"ID_KLIENT", "MARKA", "SERIAL"', [0, "", ""]),
+    ({"id_klient": 0}, '"ID_KLIENT", "MARKA", "SERIAL"', [0, "", ""]),
+    ({"marka": "KONICA"}, '"MARKA", "ID_KLIENT", "SERIAL"', ["KONICA", 0, ""]),
 ])
 def test_create_machine_allows_unassigned_owner(
     values: Any, columns: str, params: list[Any],
@@ -1847,11 +1850,12 @@ def test_create_agreement_binds_values_and_merges_legacy_defaults() -> None:
 
 
 def test_create_agreement_default_payment_profile() -> None:
-    pool = _Pool([(None, [(51,)]), (None, [(12, 51, 7, None, "", "$_$", 0)])])
+    pool = _Pool([(None, [(51,)]), (None, [(date(2026, 11, 8),)]),
+                  (None, [(12, 51, 7, "51/2026", "", "$_$", 0)])])
     service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
     result = service.create_agreement({"id_klient": 7})
     assert result["platnosc"] == "$_$"
-    assert pool.executed[1][1] == [51, 7, "", "$_$", 0]
+    assert pool.executed[2][1] == [51, 7, "", "$_$", 0, "51/2026"]
 
 
 @pytest.mark.parametrize("payload", [
@@ -1899,14 +1903,15 @@ def test_create_agreement_requires_business_and_client_columns() -> None:
 def test_create_agreement_reserves_table_before_allocating_id() -> None:
     from ks_adapter.sql import build_next_available_id
 
-    pool = _Pool([(None, [(3,)]), (None, [(12, 3, 7, None, "", "$_$", 0)])])
+    pool = _Pool([(None, [(3,)]), (None, [(date(2026, 11, 8),)]),
+                  (None, [(12, 3, 7, "3/2026", "", "$_$", 0)])])
     service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
     result = service.create_agreement({"id_klient": 7})
     assert pool.reserved_tables == ["UMOWACPC"]
     assert pool.executed[0] == (
         build_next_available_id("UMOWACPC", "ID_UMOWACPC"), None
     )
-    assert pool.executed[1][1][0] == 3
+    assert pool.executed[2][1][0] == 3
     assert result["id_umowacpc"] == 3
     assert pool.committed == 1
 
@@ -2101,7 +2106,8 @@ MACHINE_LINKABLE = TableInfo("MASZYNA", "table", None, (
 
 def test_create_agreement_links_machines_in_same_transaction() -> None:
     pool = _Pool([
-        (None, [(51,)]), (None, [(12, 51, 7, None, "", "$_$", 0)]), (None, []),
+        (None, [(51,)]), (None, [(date(2026, 11, 8),)]),
+        (None, [(12, 51, 7, None, "", "$_$", 0)]), (None, []),
         (None, [(101,)]), (None, [(101,)]),
         (None, [(102,)]), (None, [(102,)]),
     ])
@@ -2109,7 +2115,7 @@ def test_create_agreement_links_machines_in_same_transaction() -> None:
     service.schema = _StubSchema(AGREEMENT_WRITABLE, MACHINE_LINKABLE)
     result = service.create_agreement({"id_klient": 7, "machines": [4, 9, 4]})
     assert result["id_umowacpc"] == 51
-    assert pool.executed[2:] == [
+    assert pool.executed[3:] == [
         ('UPDATE "MASZYNA" SET "ID_UMOWACPC" = ? WHERE "ID_UMOWACPC" = ?',
          [None, 51]),
         ('SELECT FIRST 2 "ID_MASZYNA_TABLE" FROM "MASZYNA" '
@@ -2128,7 +2134,7 @@ def test_create_agreement_links_machines_in_same_transaction() -> None:
 @pytest.mark.parametrize("matches, error", [([], RecordNotFound),
                                              ([(101,), (102,)], RecordConflict)])
 def test_create_agreement_link_failure_rolls_back(matches: Any, error: Any) -> None:
-    pool = _Pool([(None, [(51,)]),
+    pool = _Pool([(None, [(51,)]), (None, [(date(2026, 11, 8),)]),
                   (None, [(12, 51, 7, None, "", "$_$", 0)]),
                   (None, []), (None, matches)])
     service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
@@ -2446,3 +2452,55 @@ def test_create_cpc_rolls_back_when_database_date_is_missing() -> None:
         service.create_cpc({"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3})
     assert pool.committed == 0
     assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("number", [None, "", "   ", "omitted"])
+def test_create_agreement_defaults_number_to_generated_id_and_current_year(
+    number: str | None,
+) -> None:
+    table = TableInfo("UMOWACPC", "table", None, (
+        *AGREEMENT_WRITABLE.columns, ColumnInfo("U_START", 7, "DATE", True),
+    ))
+    # An explicitly supplied start date must not determine the numbering year.
+    pool = _Pool([(None, [(4,)]), (None, [(date(2027, 1, 1),)]),
+                  (None, [(12, 4, 7, "4/2027", "", date(2025, 1, 1), "$_$", 0)])])
+    service = make_projection_service(pool, table, allow_writes=True)
+    payload = {"id_klient": 7, "u_start": date(2025, 1, 1)}
+    if number != "omitted":
+        payload["umowa"] = number
+    result = service.create_agreement(payload)
+    assert result["umowa"] == "4/2027"
+    assert pool.executed[1] == ("SELECT CURRENT_DATE FROM RDB$DATABASE", None)
+    assert "4/2027" in pool.executed[2][1]
+    assert date(2025, 1, 1) in pool.executed[2][1]
+    assert pool.committed == 1
+
+
+def test_create_machine_uses_full_legacy_profile_and_caller_overrides() -> None:
+    from ks_adapter.service import MACHINE_INSERT_DEFAULTS, MACHINE_COLUMNS
+    import re
+
+    columns = [
+        ColumnInfo("ID_MASZYNA_TABLE", 0, "INTEGER", False),
+        ColumnInfo("ID_MASZYNA", 1, "INTEGER", False),
+        *[ColumnInfo(name, i + 2, "VARCHAR(2000)", True)
+          for i, name in enumerate(MACHINE_INSERT_DEFAULTS)],
+    ]
+    table = TableInfo("MASZYNA", "table", None, tuple(columns))
+    selected = [name for name in MACHINE_COLUMNS if name in table.column_map]
+    row = tuple(11 if name == "ID_MASZYNA_TABLE" else 4 if name == "ID_MASZYNA"
+                else None for name in selected)
+    pool = _Pool([(None, [row])])
+    service = make_projection_service(pool, table, allow_writes=True)
+    service.create_machine({
+        "marka": "KONICA", "id_oddzial": 1, "aktywna": "NIE",
+        "kolorowa": "TAK", "rodzaj_us": "CPC",
+    })
+    sql, params = pool.executed[0]
+    names = re.findall(r'"([^"]+)"', sql.split("VALUES")[0])[1:]
+    inserted = dict(zip(names, params))
+    assert inserted == {**MACHINE_INSERT_DEFAULTS, "MARKA": "KONICA",
+        "ID_ODDZIAL": 1, "AKTYWNA": "NIE", "KOLOROWA": "TAK", "RODZAJ_US": "CPC"}
+    assert inserted["SYNWP"] == 0
+    assert inserted["MKOD"] == ""
+    assert pool.committed == 1

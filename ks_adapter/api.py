@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response, status
 
 from .config import AppSettings
-from .errors import AuthenticationError
+from .errors import AuthenticationError, InvalidRequest
 from .schemas import (
     Agreement,
     AgreementCreate,
@@ -317,7 +317,8 @@ def create_router(settings: AppSettings) -> APIRouter:
             "reusing gaps. The database generates id_umowacpc_table. "
             "Both identifiers are read-only. Optional fields "
             "use legacy defaults, including aktywna=TAK and u_start set to the "
-            "database current date; supplied values override them. "
+            "database current date, plus umowa=generated ID/current year when "
+            "omitted or blank; supplied values override defaults. "
             "An optional machines array links those ID_MASZYNA records to "
             "the new agreement in the same transaction. Missing or ambiguous "
             "machine IDs roll back everything. Omitted preserves links; empty clears. "
@@ -401,9 +402,10 @@ def create_router(settings: AppSettings) -> APIRouter:
             "column names). All fields are optional; an omitted or null "
             "id_klient is stored as 0 (unassigned). The "
             "INS_MASZYNA_RECORD trigger fills ID_MASZYNA_TABLE and ID_MASZYNA "
-            "from their generators, ID_ODDZIAL, ID_FIRMA and IDVAT fall back to "
-            "their column defaults, so the new row carries only the fields that "
-            "were sent with a non-blank value. Unknown fields are rejected with "
+            "from their generators. Legacy defaults fill omitted fields: branch, "
+            "company, VAT and sync flags 0; grupa Druk; aktywna TAK; kolorowa NIE; "
+            "rodzaj_us Platne; expected empty text fields. Supplied values "
+            "override those defaults. Unknown fields are rejected with "
             "422. Requires 'api.allow_writes' (otherwise 403) and, when "
             "configured, the X-API-Key header."
         ),
@@ -414,6 +416,30 @@ def create_router(settings: AppSettings) -> APIRouter:
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
         return service.create_machine(payload.model_dump(exclude_none=True))
+
+    @router.post(
+        "/machines/{id_klient}",
+        response_model=Machine,
+        status_code=status.HTTP_201_CREATED,
+        tags=["data"],
+        summary="Create a machine for a client",
+        description=(
+            "Creates a machine with id_klient from the URL. The body is optional "
+            "and accepts the same details and legacy defaults as POST /machines. "
+            "A conflicting body id_klient returns 400. Client ID 0 means "
+            "unassigned. Requires api.allow_writes and the configured X-API-Key."
+        ),
+        dependencies=protected,
+    )
+    def create_client_machine(
+        id_klient: int = Path(ge=0),
+        payload: MachineCreate | None = None,
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        values = payload.model_dump(exclude_none=True) if payload else {}
+        if values.get("id_klient", id_klient) != id_klient:
+            raise InvalidRequest("Body 'id_klient' must match the URL client ID")
+        return service.create_machine({**values, "id_klient": id_klient})
 
     @router.patch(
         "/machines/{id_maszyna}",

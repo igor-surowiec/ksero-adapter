@@ -131,12 +131,18 @@ Variations:
   its `null` fields, `service.create_machine` maps the keys onto
   `MACHINE_WRITE_COLUMNS` (trimming strings, dropping blanks, rejecting unknown fields
   and invalid supplied client IDs), keeps only the columns present in the catalog
-  snapshot, merges `MACHINE_INSERT_DEFAULTS` (`ID_KLIENT` defaults to `0` for
-  unassigned machines) through `_insert_plan()`, and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
+  snapshot, merges `MACHINE_INSERT_DEFAULTS` (unassigned owner 0, branch/company/VAT
+  and sync 0, group Druk, active TAK, colour NIE, paid billing and empty strings) through `_insert_plan()`, and calls `build_insert("MASZYNA", columns, returning=MACHINE_COLUMNS)`
   inside `pool.write_session()`. `RETURNING` yields the row `INS_MASZYNA_RECORD`
-  completed (generated `ID_MASZYNA_TABLE`/`ID_MASZYNA`, default `ID_ODDZIAL` and
-  `ID_FIRMA`), so the answer is a `Machine` with `201`. `SYNWP` is never set, so
+  completed (generated `ID_MASZYNA_TABLE`/`ID_MASZYNA`), so the answer is a
+  `Machine` with `201`. `SYNWP` is explicitly 0, so
   nothing is queued for synchronisation.
+
+`POST /machines/{id_klient}` is an additional machine-create route. It accepts
+optional `MachineCreate` details, rejects a conflicting body owner, and injects
+the non-negative URL owner before calling the same `create_machine()` service.
+It shares the write gate, API key check, native defaults and `201` response.
+The collection POST route remains available for existing callers.
 
 `POST /agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
 A positive `ID_KLIENT` comes from the URL path; the optional body contains
@@ -158,8 +164,10 @@ with `201`. Calculated financial totals remain excluded from the payload.
 The static profile matches legacy agreement `ID_UMOWACPC=1`, including
 `AKTYWNA=TAK`. If `U_START` is omitted or null, the service reads Firebird
 `CURRENT_DATE` within the reserved transaction and inserts that date. Supplied
-start dates and active flags win. Type, company, agreement number and end date
-have no inferred default. No new database objects are needed.
+start dates and active flags win. An omitted/null/blank `UMOWA` uses the
+generated business ID and the same database current year (`{ID}/{year}`),
+independently of any supplied start date. Type, company and end date have no
+inferred default. No new database objects are needed.
 
 Agreement payloads also accept an optional `machines` array. `_agreement_payload()`
 separates it from column values, validates positive INTEGER IDs, limits list

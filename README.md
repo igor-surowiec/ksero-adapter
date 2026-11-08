@@ -63,6 +63,7 @@ Routes live under `api.prefix` (`/api/v1`).
 | `PATCH` | `/agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
 | `POST` | `/machines` | create a machine (`MASZYNA`), all fields optional; unassigned owner is `0` |
+| `POST` | `/machines/{id_klient}` | create a machine with the client ID from the URL |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
 | `GET` | `/cpc-settlement` | paginated CPC settlement records, search and JSON filters |
 | `GET` | `/cpc-settlement/{id_cpc_table}` | one CPC settlement |
@@ -162,8 +163,10 @@ mono/colour counts and fee slots, and the legacy payment marker `$_$`) or column
 defaults. The profile matches the legacy agreement with `ID_UMOWACPC = 1`,
 including `aktywna = "TAK"`. Omitted or null `u_start` uses Firebird
 `CURRENT_DATE` at insertion (the database server's date). Explicit `u_start`
-and `aktywna` values override these defaults. Agreement number, type, end date
-and company are left to the caller; reference-specific values are not copied. The response is the stored `Agreement` projection with `201`.
+and `aktywna` values override these defaults. If `umowa` is omitted, null or
+blank, it defaults to `{generated ID_UMOWACPC}/{current database year}`, e.g.
+`4/2026`. A supplied nonblank number is preserved; an explicit start date does
+not change the numbering year. Type, end date and company are left to the caller; reference-specific values are not copied. The response is the stored `Agreement` projection with `201`.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
@@ -265,12 +268,33 @@ projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
 one `MASZYNA` row. All fields are optional, so `{}` is valid. An omitted,
 `null` or zero `id_klient` means unassigned and is stored as `0`, because
 `MASZYNA.ID_KLIENT` cannot be NULL. Negative client IDs are rejected.
-`INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA` while
-`ID_ODDZIAL` and `ID_FIRMA` fall back to their column defaults. Other omitted,
-`null` and blank fields are not inserted at all, strings are trimmed, and an
-unknown field name answers `422` instead of being dropped silently. Columns the
-application derives from other data (`licznik_total`, `last_m`, `last_w`,
-`next_w`, `koszty`, `przychody`, `wynik`, `synwp`) cannot be written.
+`INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA`.
+`MACHINE_INSERT_DEFAULTS` reproduces the native row profile: branch/company/VAT
+and sync flags `0`, printer group `grupa = "Druk"`, `aktywna = "TAK"`,
+`kolorowa = "NIE"`, billing type
+`rodzaj_us = "Płatne"`, and expected empty text fields (including internal
+`MKOD`, `OPCJE`, `DETAL20`). The branch default is intentionally `0`, matching
+recent legacy-created rows, rather than the raw column default `1`. Explicit
+caller values override these defaults, including branch and business flags.
+Omitted/null/blank optional strings use that profile. Counters, dates, optional
+links and financial aggregates retain their database defaults. Strings are
+trimmed; unknown fields return `422`. Application-maintained fields
+(`licznik_total`, `last_m`, `last_w`, `next_w`, `koszty`, `przychody`, `wynik`,
+`synwp`) cannot be supplied directly.
+
+`POST /machines/{id_klient}` creates a machine with its owner taken from the
+URL. It uses the same validation and legacy defaults as `POST /machines`, with
+an optional body of machine details (or no body). A body `id_klient` may be
+omitted, null, or match the URL; a conflicting value returns `400`. URL client
+ID `0` creates an unassigned machine. The response is the stored machine with
+`201`; writes enabled and the configured API key are required.
+
+```http
+POST /api/v1/machines/42
+Content-Type: application/json
+
+{"marka": "KONICA", "model": "C224", "serial": "SN-0001"}
+```
 
 `PATCH /machines/{id_maszyna}` updates an existing machine by `ID_MASZYNA`
 (the business identifier returned by `GET /machines`). It accepts the same
