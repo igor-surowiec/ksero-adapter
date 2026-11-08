@@ -1834,12 +1834,15 @@ def test_create_agreement_binds_values_and_merges_legacy_defaults() -> None:
     pool = _Pool([
         (None, [(51,)]), (None, [(12, 51, 7, "CPC TEST", "", "TRANSFER", 0)])
     ])
-    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
-    result = service.create_agreement({
+    pool.responses.append((None, []))
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE, allow_writes=True,
+    )
+    result = service.create_agreement({"machines": [],
         "id_klient": 7,
         "umowa": " CPC TEST ", "platnosc": "TRANSFER",
     })
-    assert pool.executed[1:] == [(
+    assert pool.executed[1:2] == [(
         'INSERT INTO "UMOWACPC" ("ID_UMOWACPC", "ID_KLIENT", "UMOWA", '
         '"PLATNOSC", "OPIEKUN", "TERMIN") VALUES (?, ?, ?, ?, ?, ?) '
         'RETURNING "ID_UMOWACPC_TABLE", "ID_UMOWACPC", "ID_KLIENT", "UMOWA", '
@@ -1856,8 +1859,11 @@ def test_create_agreement_binds_values_and_merges_legacy_defaults() -> None:
 def test_create_agreement_default_payment_profile() -> None:
     pool = _Pool([(None, [(51,)]), (None, [(date(2026, 11, 8),)]),
                   (None, [(12, 51, 7, "51/2026", "", "$_$", 0)])])
-    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
-    result = service.create_agreement({"id_klient": 7})
+    pool.responses.append((None, []))
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE, allow_writes=True,
+    )
+    result = service.create_agreement({"machines": [], "id_klient": 7})
     assert result["platnosc"] == "$_$"
     assert pool.executed[2][1] == [51, 7, "", "$_$", 0, "51/2026"]
 
@@ -1881,26 +1887,30 @@ def test_create_agreement_rejects_invalid_payload(payload: Any) -> None:
 
 def test_create_agreement_requires_write_permission() -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, AGREEMENT_WRITABLE)
+    service = make_projection_service(pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE)
     with pytest.raises(WritesDisabled):
-        service.create_agreement({"id_klient": 7})
+        service.create_agreement({"machines": [], "id_klient": 7})
     assert pool.executed == []
 
 
 def test_create_agreement_rolls_back_database_failure() -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     with pytest.raises(IndexError):
-        service.create_agreement({"id_klient": 7})
+        service.create_agreement({"machines": [], "id_klient": 7})
     assert pool.committed == 0
     assert pool.rolled_back == 1
 
 
 def test_create_agreement_requires_business_and_client_columns() -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, UMOWACPC, allow_writes=True)
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, UMOWACPC, allow_writes=True,
+    )
     with pytest.raises(InvalidRequest):
-        service.create_agreement({"id_klient": 7})
+        service.create_agreement({"machines": [], "id_klient": 7})
     assert pool.executed == []
 
 
@@ -1909,8 +1919,11 @@ def test_create_agreement_reserves_table_before_allocating_id() -> None:
 
     pool = _Pool([(None, [(3,)]), (None, [(date(2026, 11, 8),)]),
                   (None, [(12, 3, 7, "3/2026", "", "$_$", 0)])])
-    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
-    result = service.create_agreement({"id_klient": 7})
+    pool.responses.append((None, []))
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE, allow_writes=True,
+    )
+    result = service.create_agreement({"machines": [], "id_klient": 7})
     assert pool.reserved_tables == ["UMOWACPC"]
     assert pool.executed[0] == (
         build_next_available_id("UMOWACPC", "ID_UMOWACPC"), None
@@ -1925,9 +1938,11 @@ def test_create_agreement_reserves_table_before_allocating_id() -> None:
 ])
 def test_create_agreement_allocation_failure_rolls_back(responses: Any) -> None:
     pool = _Pool(responses)
-    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    service = make_projection_service(
+        pool, MACHINE_LINKABLE, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     with pytest.raises((InvalidRequest, IndexError)):
-        service.create_agreement({"id_klient": 7})
+        service.create_agreement({"machines": [], "id_klient": 7})
     assert pool.committed == 0
     assert pool.rolled_back == 1
 
@@ -1946,8 +1961,9 @@ def test_create_agreement_defaults_start_date_and_active_flag(start_value: Any) 
     ))
     pool = _Pool([(None, [(1,)]), (None, [(today,)]),
                   (None, [(12, 1, 7, today, "TAK")])])
-    service = make_projection_service(pool, table, allow_writes=True)
-    payload = {"id_klient": 7}
+    pool.responses.append((None, []))
+    service = make_projection_service(pool, MACHINE_LINKABLE, table, allow_writes=True)
+    payload = {"machines": [], "id_klient": 7}
     if start_value is None:
         payload["u_start"] = None
     result = service.create_agreement(payload)
@@ -1975,11 +1991,12 @@ def test_create_agreement_preserves_supplied_date_and_active_flag() -> None:
         ColumnInfo("AKTYWNA", 4, "VARCHAR(20)", True),
     ))
     pool = _Pool([(None, [(1,)]), (None, [(12, 1, 7, start, "NIE")])])
-    service = make_projection_service(pool, table, allow_writes=True)
-    result = service.create_agreement({
+    pool.responses.append((None, []))
+    service = make_projection_service(pool, MACHINE_LINKABLE, table, allow_writes=True)
+    result = service.create_agreement({"machines": [],
         "id_klient": 7, "u_start": start, "aktywna": "NIE",
     })
-    assert len(pool.executed) == 2
+    assert len(pool.executed) == 3
     assert pool.executed[1][1] == [1, 7, start, "NIE"]
     assert result["u_start"] == "2027-01-15"
     assert result["aktywna"] == "NIE"
@@ -2468,8 +2485,9 @@ def test_create_agreement_defaults_number_to_generated_id_and_current_year(
     # An explicitly supplied start date must not determine the numbering year.
     pool = _Pool([(None, [(4,)]), (None, [(date(2027, 1, 1),)]),
                   (None, [(12, 4, 7, "4/2027", "", date(2025, 1, 1), "$_$", 0)])])
-    service = make_projection_service(pool, table, allow_writes=True)
-    payload = {"id_klient": 7, "u_start": date(2025, 1, 1)}
+    pool.responses.append((None, []))
+    service = make_projection_service(pool, MACHINE_LINKABLE, table, allow_writes=True)
+    payload = {"machines": [], "id_klient": 7, "u_start": date(2025, 1, 1)}
     if number != "omitted":
         payload["umowa"] = number
     result = service.create_agreement(payload)
@@ -2644,4 +2662,13 @@ def test_delete_machine_refuses_disabled_writes() -> None:
     service = make_projection_service(pool, MASZYNA)
     with pytest.raises(WritesDisabled):
         service.delete_machine(4)
+    assert pool.executed == []
+
+
+
+def test_create_agreement_service_requires_machine_list() -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, AGREEMENT_WRITABLE, allow_writes=True)
+    with pytest.raises(InvalidRequest, match="machines"):
+        service.create_agreement({"id_klient": 7})
     assert pool.executed == []

@@ -154,7 +154,8 @@ the variable is public.
    Agreement creation allocates the lowest unused positive `ID_UMOWACPC`
    inside `write_session(reserve_table="UMOWACPC")`; keep allocation and insert
    in that same reserved transaction to prevent races across processes.
-   Optional agreement machine links must use the same cursor/transaction;
+   Agreement creation requires a machine list; updates may omit it. Machine
+   links must use the same cursor/transaction;
    missing or ambiguous machine IDs must roll back the complete request.
    CPC parent IDs remain fixed on update: its legacy trigger only recomputes
    NEW parent totals. Allow legacy ID_CPC_TABLE=0 in record URLs.

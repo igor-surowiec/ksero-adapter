@@ -56,7 +56,7 @@ class AgreementPage(BaseModel):
 
 
 class AgreementCreate(BaseModel):
-    """Optional agreement details; the client ID comes from the URL path.
+    """Required machine list and optional details; client ID comes from the URL.
 
     The business ID is the lowest unused positive integer; Firebird generates
     the table key. Omitted fields receive the shared
@@ -66,8 +66,8 @@ class AgreementCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     machines: list[Annotated[int, Field(strict=True, ge=1, le=2147483647)]] = Field(
-        default_factory=list, max_length=MAX_AGREEMENT_MACHINES,
-        description="Complete ID_MASZYNA list; omitted preserves, empty clears links",
+        max_length=MAX_AGREEMENT_MACHINES,
+        description="Required ID_MASZYNA list; [] creates an agreement without machines",
     )
 
     id_oddzial: int | None = Field(default=None, description="Branch")
@@ -138,6 +138,10 @@ class AgreementUpdate(AgreementCreate):
     Omitted columns stay unchanged; defaults apply only to creation.
     """
 
+    machines: list[Annotated[int, Field(strict=True, ge=1, le=2147483647)]] = Field(
+        default_factory=list, max_length=MAX_AGREEMENT_MACHINES,
+        description="Complete ID_MASZYNA list; omitted preserves, empty clears links",
+    )
     umowa: str | None = Field(
         default=None, max_length=AGREEMENT_TEXT_LENGTHS["UMOWA"],
         description="Agreement number; omitted keeps current value",

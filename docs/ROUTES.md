@@ -24,7 +24,7 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `PATCH` | `/clients/{id_klient}` | update supplied contractor fields by client identifier |
 | `DELETE` | `/clients/{id_klient}` | delete a contractor and trigger-managed machines/contacts (`204`) |
 | `GET` | `/cpc-agreements` | service agreements (`UMOWACPC`) |
-| `POST` | `/cpc-agreements/{id_klient}` | create an agreement (`UMOWACPC`); only `id_klient` required |
+| `POST` | `/cpc-agreements/{id_klient}` | create an agreement (`UMOWACPC`); `id_klient` in URL and `machines` array required |
 | `PATCH` | `/cpc-agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `DELETE` | `/cpc-agreements/{id_umowacpc}` | delete an unreferenced agreement (`204`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
@@ -105,8 +105,9 @@ curl -X DELETE http://127.0.0.1:8000/api/v1/clients/42
 
 `POST /cpc-agreements/{id_klient}` inserts a service agreement into `UMOWACPC`.
 The positive `id_klient` (contractor) comes from the URL path. The request body
-is optional; omit it or send `{}` to use defaults. Do not include `id_klient` in
-the body. The adapter assigns `id_umowacpc` as the lowest unused positive
+must include `machines`; send `{"machines": []}` for an agreement without linked
+machines using default details. Do not include `id_klient` in the body.
+The adapter assigns `id_umowacpc` as the lowest unused positive
 integer, starting at `1` and reusing gaps (existing IDs `1, 2, 4` produce `3`).
 The trigger generates `id_umowacpc_table`. Both IDs are read-only and rejected
 if included in the request.
@@ -139,14 +140,15 @@ reference-specific values are not copied. The response is the stored `Agreement`
 projection with `201`.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/cpc-agreements/42 -H 'Content-Type: application/json' -d '{"umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
+curl -X POST http://127.0.0.1:8000/api/v1/cpc-agreements/42 -H 'Content-Type: application/json' -d '{"machines": [], "umowa": "CPC/2026/001", "u_start": "2026-11-08", "aktywna": "TAK"}'
 ```
 
-Agreement requests accept an optional `machines` array of positive `ID_MASZYNA`
-values. On creation, each listed machine gets the generated agreement ID in
+Agreement creation requires a `machines` array of positive `ID_MASZYNA`
+values; it is optional on update. Omitted or null arrays on POST return `422`.
+An empty array is valid. On creation, each listed machine gets the generated agreement ID in
 `MASZYNA.ID_UMOWACPC`. On update, it gets the agreement ID from the URL.
 Existing agreement links on listed machines are reassigned; machine ownership
-(`ID_KLIENT`) stays unchanged. Omitting `machines` preserves current links. A
+(`ID_KLIENT`) stays unchanged. Omitting `machines` on PATCH preserves current links. A
 supplied array is the complete desired list: machines previously linked to this
 agreement but absent from it have `ID_UMOWACPC` cleared to NULL. Sending `[]`
 clears all of this agreement's links. Other agreements' machine links are

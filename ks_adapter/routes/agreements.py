@@ -57,30 +57,28 @@ def create_router(settings: AppSettings) -> APIRouter:
         tags=["data"],
         summary="Create a service agreement (UMOWACPC)",
         description=(
-            "Creates an agreement for id_klient from the URL path. The optional "
-            "body contains agreement details. The adapter "
+            "Creates an agreement for id_klient from the URL path. The required "
+            "body contains a machines array and optional agreement details. The adapter "
             "assigns id_umowacpc as the lowest unused positive integer, "
             "reusing gaps. The database generates id_umowacpc_table. "
             "Both identifiers are read-only. Optional fields "
             "use legacy defaults, including aktywna=TAK and u_start set to the "
             "database current date, plus umowa=generated ID/current year when "
             "omitted or blank; supplied values override defaults. "
-            "An optional machines array links those ID_MASZYNA records to "
+            "The required machines array links those ID_MASZYNA records to "
             "the new agreement in the same transaction. Missing or ambiguous "
-            "machine IDs roll back everything. Omitted preserves links; empty clears. "
+            "machine IDs roll back everything. Empty arrays are allowed. "
             "Returns the same projection as GET /cpc-agreements. Generated table "
             "keys and financial totals cannot be supplied. Requires "
             "api.allow_writes and the configured X-API-Key."
         ),
     )
     def create_agreement(
+        payload: AgreementCreate,
         id_klient: int = Path(ge=1),
-        payload: AgreementCreate | None = None,
         service: DatabaseService = Depends(get_service),
     ) -> dict[str, Any]:
-        values = (
-            payload.model_dump(exclude_unset=True, exclude_none=True) if payload else {}
-        )
+        values = payload.model_dump(exclude_unset=True, exclude_none=True)
         return service.create_agreement({"id_klient": id_klient, **values})
 
 

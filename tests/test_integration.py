@@ -623,7 +623,7 @@ def test_create_agreement_endpoint_stores_fields_and_legacy_defaults(
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
             response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}",
-            json={
+            json={"machines": [],
                 "umowa": " KS ADAPTER AGREEMENT TEST ", "u_start": "2026-11-08",
                 "rabat": "2.5000", "termin": 14, "aktywna": "TAK",
             })
@@ -654,7 +654,7 @@ def test_create_agreement_is_refused_without_allow_writes(
     service: DatabaseService,
 ) -> None:
     with pytest.raises(WritesDisabled):
-        service.create_agreement({"id_klient": 7})
+        service.create_agreement({"machines": [], "id_klient": 7})
 
 
 @requires_writable
@@ -663,12 +663,12 @@ def test_create_agreement_reuses_a_deleted_gap(write_service: DatabaseService) -
     agreements = []
     try:
         for _ in range(3):
-            agreements.append(write_service.create_agreement({
+            agreements.append(write_service.create_agreement({"machines": [],
                 "id_klient": owner["id_klient"],
             }))
         removed = agreements.pop(1)
         delete_agreement(write_service, removed["id_umowacpc_table"])
-        replacement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        replacement = write_service.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
         agreements.append(replacement)
         assert replacement["id_umowacpc"] == removed["id_umowacpc"]
     finally:
@@ -692,7 +692,7 @@ def test_concurrent_agreement_allocation_across_services(
 
     def create(instance: DatabaseService) -> dict[str, Any]:
         start.wait(timeout=10)
-        return instance.create_agreement({"id_klient": owner["id_klient"]})
+        return instance.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
 
     try:
         with ThreadPoolExecutor(max_workers=4) as executor:
@@ -730,7 +730,7 @@ def test_create_agreement_defaults_match_legacy_reference(
         )
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
-            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}")
+            response = client.post(f"/api/v1/cpc-agreements/{owner['id_klient']}", json={"machines": []})
         assert response.status_code == 201
         agreement = response.json()
         after = write_service.run_query(
@@ -868,7 +868,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
         }))["rows"][0]
 
     try:
-        original = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        original = write_service.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
         agreements.append(original)
         for _ in range(3):
             machines.append(write_service.create_machine({"marka": "KS TEST",
@@ -959,7 +959,7 @@ def test_agreement_links_reject_duplicate_machine_business_ids(
     machines = []
     agreement = None
     try:
-        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        agreement = write_service.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
         for _ in range(2):
             machines.append(write_service.create_machine({"marka": "KS TEST",
                 "id_klient": owner["id_klient"],
@@ -1007,7 +1007,7 @@ def test_cpc_crud_and_native_parent_aggregate_triggers(
         )["rows"][0]
 
     try:
-        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        agreement = write_service.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
         machine = write_service.create_machine({"marka": "KS TEST",
             "id_klient": owner["id_klient"], "id_umowacpc": agreement["id_umowacpc"],
         })
@@ -1219,7 +1219,7 @@ def test_delete_agreement_endpoint_and_link_conflict(
     owner = write_service.create_client({"nazwa": "KS ADAPTER DELETE AGREEMENT TEST"})
     agreement = machine = None
     try:
-        agreement = write_service.create_agreement({"id_klient": owner["id_klient"]})
+        agreement = write_service.create_agreement({"machines": [], "id_klient": owner["id_klient"]})
         key = agreement["id_umowacpc"]
         machine = write_service.create_machine({"marka": "KS TEST",
             "id_klient": owner["id_klient"], "id_umowacpc": key,
@@ -1338,4 +1338,24 @@ def test_delete_machine_endpoint_removes_machine_and_orders(
         for item in (machine, other):
             if item:
                 delete_machine(write_service, item["id_maszyna_table"])
+        delete_client(write_service, owner["id_klient_table"])
+
+
+
+@requires_writable
+@pytest.mark.parametrize("payload", [None, {}, {"machines": None}])
+def test_create_agreement_requires_array_without_inserting(
+    write_service: DatabaseService, payload: Any,
+) -> None:
+    owner = write_service.create_client({"nazwa": "KS ADAPTER REQUIRED MACHINES TEST"})
+    try:
+        before = write_service.fetch_rows("UMOWACPC", limit=1)["total"]
+        app = create_app(write_service.settings, service=write_service)
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/v1/cpc-agreements/{owner['id_klient']}", json=payload,
+            )
+        assert response.status_code == 422
+        assert write_service.fetch_rows("UMOWACPC", limit=1)["total"] == before
+    finally:
         delete_client(write_service, owner["id_klient_table"])

@@ -138,6 +138,8 @@ class AgreementsService(BaseDatabaseService):
         """
         self._require_writes()
         fields, machines = self._agreement_payload(values)
+        if machines is None:
+            raise InvalidRequest("Supply a 'machines' array when creating an agreement")
         prepared = self._prepared_write_values(
             fields, AGREEMENT_WRITE_COLUMNS, AGREEMENT_TEXT_LENGTHS
         )

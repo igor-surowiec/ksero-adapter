@@ -789,7 +789,7 @@ def test_create_agreement_returns_stored_projection(
     client: TestClient, fake_service: FakeService,
 ) -> None:
     payload = {
-        "umowa": "CPC/2026/001",
+        "machines": [], "umowa": "CPC/2026/001",
         "u_start": "2026-11-08", "rabat": "2.5000", "uwagi": None,
     }
     response = client.post("/api/v1/cpc-agreements/7", json=payload)
@@ -801,7 +801,7 @@ def test_create_agreement_returns_stored_projection(
 
     assert fake_service.calls[-1] == {
         "action": "create_agreement", "values": {
-            "id_klient": 7, "umowa": "CPC/2026/001",
+            "id_klient": 7, "machines": [], "umowa": "CPC/2026/001",
             "u_start": dt.date(2026, 11, 8), "rabat": Decimal("2.5000"),
         },
     }
@@ -815,12 +815,14 @@ def test_create_agreement_returns_stored_projection(
 def test_create_agreement_rejects_invalid_fields(
     client: TestClient, payload: dict[str, Any],
 ) -> None:
-    assert client.post("/api/v1/cpc-agreements/7", json=payload).status_code == 422
+    assert client.post(
+        "/api/v1/cpc-agreements/7", json={"machines": [], **payload},
+    ).status_code == 422
 
 
 def test_create_agreement_requires_api_key() -> None:
     app = create_app(make_settings(api_key="secret"), service=FakeService())
-    payload = {}
+    payload = {"machines": []}
     with TestClient(app) as client:
         assert client.post("/api/v1/cpc-agreements/7", json=payload).status_code == 401
         assert client.post(
@@ -837,22 +839,28 @@ def test_create_agreement_reports_disabled_writes() -> None:
     app = create_app(make_settings(), service=ReadOnlyService())
     with TestClient(app) as client:
         response = client.post(
-            "/api/v1/cpc-agreements/7", json={}
+            "/api/v1/cpc-agreements/7", json={"machines": []}
         )
     assert response.status_code == 403
     assert response.json()["error"] == "WritesDisabled"
 
 
-@pytest.mark.parametrize("with_body", [False, True])
-def test_create_agreement_needs_only_client_path(
-    client: TestClient, fake_service: FakeService, with_body: bool,
+@pytest.mark.parametrize("payload", [None, {}, {"machines": None}])
+def test_create_agreement_requires_machines_array(
+    client: TestClient, fake_service: FakeService, payload: Any,
 ) -> None:
-    response = client.post(
-        "/api/v1/cpc-agreements/42", **({"json": {}} if with_body else {})
-    )
+    response = client.post("/api/v1/cpc-agreements/42", json=payload)
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_create_agreement_accepts_empty_machines(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.post("/api/v1/cpc-agreements/42", json={"machines": []})
     assert response.status_code == 201
     assert fake_service.calls[-1] == {
-        "action": "create_agreement", "values": {"id_klient": 42},
+        "action": "create_agreement", "values": {"id_klient": 42, "machines": []},
     }
 
 
@@ -925,7 +933,7 @@ def test_update_machine_reports_domain_errors(error: Exception, status: int) -> 
     assert response.json()["error"] == type(error).__name__
 
 
-def test_create_agreement_forwards_optional_machines(
+def test_create_agreement_forwards_required_machines(
     client: TestClient, fake_service: FakeService,
 ) -> None:
     response = client.post("/api/v1/cpc-agreements/7", json={"machines": [4, 9]})
@@ -1320,3 +1328,13 @@ def test_delete_machine_requires_api_key() -> None:
             "/api/v1/machines/4", headers={"X-API-Key": "secret"},
         )
     assert response.status_code == 204
+
+
+
+def test_agreement_machines_required_only_for_creation(client: TestClient) -> None:
+    spec = client.get("/openapi.json").json()
+    schemas = spec["components"]["schemas"]
+    assert "machines" in schemas["AgreementCreate"]["required"]
+    assert "machines" not in schemas["AgreementUpdate"].get("required", [])
+    operation = spec["paths"]["/api/v1/cpc-agreements/{id_klient}"]["post"]
+    assert operation["requestBody"]["required"] is True

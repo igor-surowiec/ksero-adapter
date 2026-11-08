@@ -144,8 +144,9 @@ the write gate, API key check, native defaults and `201` response.
 The collection `/machines` route supports GET only.
 
 `POST /cpc-agreements/{id_klient}` validates `AgreementCreate` and calls `create_agreement()`.
-A positive `ID_KLIENT` comes from the URL path; the optional body contains
-only agreement details. Both agreement identifiers are read-only.
+A positive `ID_KLIENT` comes from the URL path; the required body contains
+a `machines` array and optional agreement details. Both agreement identifiers
+are read-only.
 The service normalises `AGREEMENT_WRITE_COLUMNS` with `AGREEMENT_TEXT_LENGTHS`
 and merges `AGREEMENT_INSERT_DEFAULTS` through `_insert_plan()`. It opens
 `pool.write_session(reserve_table="UMOWACPC")`, which rolls back any idle health
@@ -168,7 +169,8 @@ generated business ID and the same database current year (`{ID}/{year}`),
 independently of any supplied start date. Type, company and end date have no
 inferred default. No new database objects are needed.
 
-Agreement payloads also accept an optional `machines` array. `_agreement_payload()`
+Agreement creation requires a `machines` array (which may be empty); updates
+keep it optional. `_agreement_payload()`
 separates it from column values, validates positive INTEGER IDs, limits list
 size and removes repeated entries. Machine metadata is loaded before opening
 the write transaction, so a pool with one connection also works. After the
