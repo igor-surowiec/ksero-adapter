@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from ..errors import ColumnNotFound, DatabaseUnavailable, InvalidRequest, RecordNotFound
+from ..errors import (
+    ColumnNotFound, DatabaseUnavailable, InvalidRequest, RecordConflict, RecordNotFound,
+)
 from ..sql import (
     build_delete,
     build_insert,
@@ -13,6 +15,7 @@ from ..sql import (
     quote_identifier,
 )
 from .base import BaseDatabaseService, _insert_plan
+from .agreements import AGREEMENTS_TABLE
 
 
 #: CPC settlement records, keyed only by the generated ID_CPC_TABLE.
@@ -155,15 +158,17 @@ class CpcSettlementService(BaseDatabaseService):
         return self._serialize_row([c.lower() for c in selected], row)
 
     def create_cpc(self, values: Mapping[str, Any]) -> dict[str, Any]:
-        """Insert a settlement; the database generates its record key."""
+        """Insert a settlement using the client stored on its agreement."""
         self._require_writes()
         prepared = self._prepared_write_values(
             values, CPC_WRITE_COLUMNS, CPC_TEXT_LENGTHS
         )
-        for column in ("ID_KLIENT", "ID_MASZYNA", "ID_UMOWACPC"):
+        for column in ("ID_MASZYNA", "ID_UMOWACPC"):
             value = prepared.get(column)
             if not isinstance(value, int) or isinstance(value, bool) or value < 1:
                 raise InvalidRequest(f"'{column.lower()}' must be a positive integer")
+        if "ID_KLIENT" in prepared:
+            self._check_client_id(prepared["ID_KLIENT"])
         self._check_cpc_period(prepared)
         info = self.schema.get(CPC_TABLE)
         required = {"ID_CPC_TABLE", "ID_KLIENT", "ID_MASZYNA", "ID_UMOWACPC",
@@ -171,9 +176,33 @@ class CpcSettlementService(BaseDatabaseService):
         if not required <= info.column_map.keys():
             raise InvalidRequest("CPC table lacks required settlement columns")
         selected = [c for c in CPC_COLUMNS if c in info.column_map]
+        agreement_info = self.schema.get(AGREEMENTS_TABLE)
+        if not {"ID_UMOWACPC", "ID_KLIENT"} <= agreement_info.column_map.keys():
+            raise InvalidRequest("Agreement table lacks client reference columns")
         with self.pool.write_session() as connection:
             cursor = connection.cursor()
             try:
+                cursor.execute(
+                    f"SELECT FIRST 2 "
+                    f"{quote_identifier(agreement_info.column_map['ID_KLIENT'])} "
+                    f"FROM {quote_identifier(agreement_info.name)} "
+                    f"WHERE {quote_identifier(agreement_info.column_map['ID_UMOWACPC'])} "
+                    "= ?", [prepared["ID_UMOWACPC"]],
+                )
+                agreements = cursor.fetchall()
+                if not agreements:
+                    raise RecordNotFound(
+                        f"Agreement {prepared['ID_UMOWACPC']} not found"
+                    )
+                if len(agreements) > 1:
+                    raise RecordConflict(
+                        f"Multiple agreements have ID {prepared['ID_UMOWACPC']}"
+                    )
+                owner = agreements[0][0]
+                self._check_client_id(owner)
+                if "ID_KLIENT" in prepared and prepared["ID_KLIENT"] != owner:
+                    raise InvalidRequest("'id_klient' must match the agreement's client")
+                prepared = {"ID_KLIENT": owner, **prepared}
                 defaults = dict(CPC_INSERT_DEFAULTS)
                 if "ROK" not in prepared or "MIESIAC" not in prepared:
                     cursor.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")

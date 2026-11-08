@@ -52,7 +52,9 @@ def create_router(settings: AppSettings) -> APIRouter:
         "/cpc-settlement", response_model=Cpc, status_code=status.HTTP_201_CREATED,
         tags=["data"], summary="Create a CPC settlement",
         description=(
-            "Requires id_klient, id_maszyna and id_umowacpc. Omitted/null rok "
+            "Requires id_maszyna and id_umowacpc. id_klient is derived from the "
+            "agreement; if supplied, it must match. Missing agreements return 404 "
+            "and ambiguous IDs return 409. Omitted/null rok "
             "and miesiac default independently to the database current year "
             "and month. Explicit values are preserved. "
             "The database generates id_cpc_table. Readings and recorded charges "

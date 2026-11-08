@@ -1001,7 +1001,7 @@ def test_update_agreement_reports_domain_errors(error: Exception, status: int) -
     assert response.json()["error"] == type(error).__name__
 
 
-CPC_REQUEST = {"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3,
+CPC_REQUEST = {"id_maszyna": 9, "id_umowacpc": 3,
                "rok": 2026, "miesiac": 11}
 
 
@@ -1041,7 +1041,7 @@ def test_create_cpc_validates_input(client: TestClient, change: dict[str, Any]) 
 
 
 def test_create_cpc_requires_parents(client: TestClient) -> None:
-    for missing in ("id_klient", "id_maszyna", "id_umowacpc"):
+    for missing in ("id_maszyna", "id_umowacpc"):
         assert client.post("/api/v1/cpc-settlement", json={
             key: value for key, value in CPC_REQUEST.items() if key != missing
         }).status_code == 422
@@ -1338,3 +1338,23 @@ def test_agreement_machines_required_only_for_creation(client: TestClient) -> No
     assert "machines" not in schemas["AgreementUpdate"].get("required", [])
     operation = spec["paths"]["/api/v1/cpc-agreements/{id_klient}"]["post"]
     assert operation["requestBody"]["required"] is True
+
+
+@pytest.mark.parametrize("client_id", ["omitted", None, 7])
+def test_create_cpc_does_not_require_client(
+    client: TestClient, fake_service: FakeService, client_id: Any,
+) -> None:
+    payload = {**CPC_REQUEST}
+    if client_id != "omitted":
+        payload["id_klient"] = client_id
+    response = client.post("/api/v1/cpc-settlement", json=payload)
+    assert response.status_code == 201
+    assert response.json()["id_klient"] == 7
+    if client_id in ("omitted", None):
+        assert "id_klient" not in fake_service.calls[-1]["values"]
+
+
+def test_cpc_create_schema_derives_client_from_agreement(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["CpcCreate"]
+    assert "id_klient" not in schema["required"]
+    assert {"id_maszyna", "id_umowacpc"} <= set(schema["required"])

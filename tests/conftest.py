@@ -144,7 +144,7 @@ class FakeService:
 
     def create_cpc(self, values: Mapping[str, Any]) -> dict[str, Any]:
         self.calls.append({"action": "create_cpc", "values": dict(values)})
-        return to_jsonable({"id_cpc_table": 101, **values})
+        return to_jsonable({"id_cpc_table": 101, "id_klient": 7, **values})
 
     def update_cpc(
         self, id_cpc_table: int, values: Mapping[str, Any],

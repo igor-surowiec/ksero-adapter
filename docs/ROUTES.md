@@ -202,8 +202,12 @@ filters for `id_klient`, `id_maszyna`, `id_umowacpc`, `rok` or `miesiac`. `GET
 /cpc-settlement/{id_cpc_table}` returns one record or `404`. Record keys are
 non-negative: existing legacy key `0` is supported.
 
-`POST /cpc-settlement` requires positive `id_klient`, `id_maszyna` and
-`id_umowacpc`. Optional `rok` (1–9999) and `miesiac` (1–12) default
+`POST /cpc-settlement` requires positive `id_maszyna` and `id_umowacpc`.
+The API reads `ID_KLIENT` from that agreement and stores it on the settlement
+in the same transaction. Missing agreements return `404`; duplicate agreement
+IDs return `409`. `id_klient` may be omitted or null; if supplied, it must match
+the agreement's client, otherwise the request returns `400` without insertion.
+Optional `rok` (1–9999) and `miesiac` (1–12) default
 independently to the database current year/month when omitted or null. Explicit
 values are preserved, including when only one period field is supplied. Updates
 never reapply these defaults. Firebird generates `id_cpc_table`. Optional fields
@@ -235,7 +239,7 @@ transaction. Empty aggregates follow the database's existing NULL behavior.
 POST /api/v1/cpc-settlement
 Content-Type: application/json
 
-{"id_klient": 42, "id_maszyna": 4, "id_umowacpc": 3, "rok": 2026, "miesiac": 11, "licznik_mono_start": 1000, "licznik_mono_end": 1500}
+{"id_maszyna": 4, "id_umowacpc": 3, "rok": 2026, "miesiac": 11, "licznik_mono_start": 1000, "licznik_mono_end": 1500}
 ```
 
 ```http

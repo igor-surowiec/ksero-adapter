@@ -226,15 +226,20 @@ primary key is the only record identifier, including legacy key 0. `fetch_cpc()`
 uses `_projection_page()` with optional JSON filters combined with invoice/notes
 search. `get_cpc()` uses a guarded bound SELECT and returns 404 for no match.
 
-`CPC_COLUMNS` omits internal version bookkeeping. `CpcCreate` requires parent
-IDs; omitted/null year and month come independently from Firebird CURRENT_DATE
+`CPC_COLUMNS` omits internal version bookkeeping. `CpcCreate` requires machine
+and agreement IDs. `create_cpc()` looks up the agreement's `ID_KLIENT` with a
+bound `SELECT FIRST 2` inside the insert transaction. A missing agreement gives
+`404`, duplicate agreement IDs give `409`, and a supplied conflicting client
+ID gives `400`; all roll back. Omitted/null client IDs use the agreement owner.
+Omitted/null year and month come independently from Firebird CURRENT_DATE
 inside the insert transaction, while supplied period values are preserved. `CpcUpdate` permits only settlement fields, preserving
 parent IDs because the legacy trigger recalculates only NEW references.
 `CPC_TEXT_LENGTHS` and Decimal constraints mirror catalog widths/precision.
 `CPC_INSERT_DEFAULTS` records shared zero/empty values from existing CPC rows.
 `create_cpc()` merges defaults with `_insert_plan()`. `update_cpc()` validates
 supplied fields/catalog nullability without applying defaults. `delete_cpc()`
-uses `build_delete()`. All writes use existing SQL builders and `_write_row()`
+uses `build_delete()`. Writes use existing SQL builders, with simple updates
+and deletions going through `_write_row()`,
 inside `write_session()` and require the write gate; missing records roll back.
 
 The native SUM_UMOWA_CPC and DEL_CPC_RECORD triggers recalculate machine and

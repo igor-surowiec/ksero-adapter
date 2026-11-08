@@ -1011,17 +1011,32 @@ def test_cpc_crud_and_native_parent_aggregate_triggers(
         machine = write_service.create_machine({"marka": "KS TEST",
             "id_klient": owner["id_klient"], "id_umowacpc": agreement["id_umowacpc"],
         })
-        payload = {"id_klient": owner["id_klient"],
+        payload = {
             "id_maszyna": machine["id_maszyna"],
             "id_umowacpc": agreement["id_umowacpc"], "rok": 2026, "miesiac": 11}
         app = create_app(write_service.settings, service=write_service)
         with TestClient(app) as client:
+            before_count = write_service.fetch_rows("CPC", limit=1)["total"]
+            conflict = client.post("/api/v1/cpc-settlement", json={
+                **payload, "id_klient": owner["id_klient"] + 1,
+            })
+            assert conflict.status_code == 400
+            unused = write_service.run_query(
+                'SELECT COALESCE(MAX("ID_UMOWACPC"), 0) + 1 AS NEXT_ID '
+                'FROM "UMOWACPC"'
+            )["rows"][0]["NEXT_ID"]
+            missing = client.post("/api/v1/cpc-settlement", json={
+                **payload, "id_umowacpc": unused,
+            })
+            assert missing.status_code == 404
+            assert write_service.fetch_rows("CPC", limit=1)["total"] == before_count
             response = client.post("/api/v1/cpc-settlement", json={**payload,
                 "licznik_mono_start": 1000, "oplata_suma": "100.00",
                 "koszty": "20.00", "wynik": "80.00", "uwagi": " CPC TEST ",
             })
             assert response.status_code == 201
             created = response.json()
+            assert created["id_klient"] == owner["id_klient"]
             settlements.append(created["id_cpc_table"])
             url = f"/api/v1/cpc-settlement/{created['id_cpc_table']}"
             assert created["uwagi"] == "CPC TEST"
@@ -1044,7 +1059,7 @@ def test_cpc_crud_and_native_parent_aggregate_triggers(
                 assert row["KOSZTY"] == 20
                 assert row["WYNIK"] == 80
             parents = {key: payload[key] for key in (
-                "id_klient", "id_maszyna", "id_umowacpc",
+                "id_maszyna", "id_umowacpc",
             )}
             before = write_service.run_query(
                 "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"
@@ -1054,6 +1069,7 @@ def test_cpc_crud_and_native_parent_aggregate_triggers(
             })
             assert response.status_code == 201
             second = response.json()
+            assert second["id_klient"] == owner["id_klient"]
             settlements.append(second["id_cpc_table"])
             after = write_service.run_query(
                 "SELECT CURRENT_DATE AS TODAY FROM RDB$DATABASE"

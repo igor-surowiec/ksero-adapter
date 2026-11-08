@@ -159,6 +159,8 @@ the variable is public.
    missing or ambiguous machine IDs must roll back the complete request.
    CPC parent IDs remain fixed on update: its legacy trigger only recomputes
    NEW parent totals. Allow legacy ID_CPC_TABLE=0 in record URLs.
+   CPC creation derives ID_KLIENT from the unique agreement in the insert
+   transaction; reject conflicting caller-supplied client IDs.
 5. Execute it inside `self.pool.write_session()` and only there: it commits on
    success and rolls back on any exception.
 6. Give the offline suite a `_Pool.write_session()` case (`committed` /

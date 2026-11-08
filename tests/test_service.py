@@ -2278,7 +2278,7 @@ CPC_STUB = TableInfo("CPC", "table", None, (
     ColumnInfo("WYNIK", 11, "DECIMAL(10,4)", True),
     ColumnInfo("UWAGI", 12, "VARCHAR(500)", True),
 ))
-CPC_PAYLOAD = {"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3,
+CPC_PAYLOAD = {"id_maszyna": 9, "id_umowacpc": 3,
                "rok": 2026, "miesiac": 11}
 CPC_ROW = (101, 7, 9, 3, None, None, 2026, 11, 0, 0, 0, 0, "")
 CPC_RETURNING = (
@@ -2290,9 +2290,12 @@ CPC_RETURNING = (
 
 def test_create_cpc_merges_legacy_profile_and_commits() -> None:
     pool = _Pool([(None, [CPC_ROW])])
-    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    pool.responses.insert(0, (None, [(7,)]))
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     result = service.create_cpc(CPC_PAYLOAD)
-    assert pool.executed == [(
+    assert pool.executed[1:] == [(
         'INSERT INTO "CPC" ("ID_KLIENT", "ID_MASZYNA", "ID_UMOWACPC", "ROK", '
         '"MIESIAC", "IDVAT", "OPLATA_SUMA", "KOSZTY", "WYNIK", "UWAGI") '
         f'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {CPC_RETURNING}',
@@ -2304,13 +2307,16 @@ def test_create_cpc_merges_legacy_profile_and_commits() -> None:
 
 def test_create_cpc_supplied_values_override_defaults() -> None:
     pool = _Pool([(None, [CPC_ROW])])
-    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    pool.responses.insert(0, (None, [(7,)]))
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     service.create_cpc({**CPC_PAYLOAD, "oplata_suma": 100, "uwagi": " TEST "})
-    assert pool.executed[0][1] == [7, 9, 3, 2026, 11, 100, "TEST", 0, 0, 0]
+    assert pool.executed[1][1] == [7, 9, 3, 2026, 11, 100, "TEST", 0, 0, 0]
 
 
 @pytest.mark.parametrize("change", [
-    {"id_klient": None}, {"id_maszyna": 0}, {"id_umowacpc": True},
+    {"id_klient": -1}, {"id_maszyna": 0}, {"id_umowacpc": True},
     {"rok": 0}, {"rok": 10000}, {"miesiac": 13},
     {"id_cpc_table": 1}, {"uwagi": "x" * 501},
 ])
@@ -2406,7 +2412,7 @@ def test_cpc_writes_are_disabled_by_default(method: str) -> None:
 @pytest.mark.parametrize("method", ["create_cpc", "update_cpc", "delete_cpc"])
 def test_cpc_database_failure_rolls_back(method: str) -> None:
     pool = _Pool([])
-    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    service = make_projection_service(pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True)
     args = (CPC_PAYLOAD,) if method == "create_cpc" else (
         (101, {"uwagi": "TEST"}) if method == "update_cpc" else (101,)
     )
@@ -2452,11 +2458,14 @@ def test_create_cpc_defaults_missing_period_from_database_date(
 
     row = (*CPC_ROW[:6], *expected, *CPC_ROW[8:])
     pool = _Pool([(None, [(dt.date(2027, 1, 1),)]), (None, [row])])
-    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    pool.responses.insert(0, (None, [(7,)]))
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     result = service.create_cpc({"id_klient": 7, "id_maszyna": 9,
                                "id_umowacpc": 3, **period})
-    assert pool.executed[0] == ("SELECT CURRENT_DATE FROM RDB$DATABASE", None)
-    sql, params = pool.executed[1]
+    assert pool.executed[1] == ("SELECT CURRENT_DATE FROM RDB$DATABASE", None)
+    sql, params = pool.executed[2]
     columns = re.findall(r'"([^"]+)"', sql.split("VALUES")[0])[1:]
     inserted = dict(zip(columns, params))
     assert (inserted["ROK"], inserted["MIESIAC"]) == expected
@@ -2466,7 +2475,10 @@ def test_create_cpc_defaults_missing_period_from_database_date(
 
 def test_create_cpc_rolls_back_when_database_date_is_missing() -> None:
     pool = _Pool([(None, [])])
-    service = make_projection_service(pool, CPC_STUB, allow_writes=True)
+    pool.responses.insert(0, (None, [(7,)]))
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
     from ks_adapter.errors import DatabaseUnavailable
 
     with pytest.raises(DatabaseUnavailable):
@@ -2672,3 +2684,42 @@ def test_create_agreement_service_requires_machine_list() -> None:
     with pytest.raises(InvalidRequest, match="machines"):
         service.create_agreement({"id_klient": 7})
     assert pool.executed == []
+
+
+@pytest.mark.parametrize("agreements, error", [
+    ([], RecordNotFound), ([(7,), (8,)], RecordConflict),
+    ([(None,)], InvalidRequest), ([(0,)], InvalidRequest),
+])
+def test_create_cpc_rejects_invalid_agreement_before_insert(
+    agreements: Any, error: Any,
+) -> None:
+    pool = _Pool([(None, agreements)])
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
+    with pytest.raises(error):
+        service.create_cpc(CPC_PAYLOAD)
+    assert pool.executed == [(
+        'SELECT FIRST 2 "ID_KLIENT" FROM "UMOWACPC" WHERE "ID_UMOWACPC" = ?', [3],
+    )]
+    assert pool.committed == 0
+    assert pool.rolled_back == 1
+
+
+@pytest.mark.parametrize("client_id", [None, 7, 8])
+def test_create_cpc_supplied_client_must_match_agreement(client_id: Any) -> None:
+    pool = _Pool([(None, [(7,)]), (None, [CPC_ROW])])
+    service = make_projection_service(
+        pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
+    )
+    payload = {**CPC_PAYLOAD, "id_klient": client_id}
+    if client_id == 8:
+        with pytest.raises(InvalidRequest, match="match"):
+            service.create_cpc(payload)
+        assert len(pool.executed) == 1
+        assert pool.committed == 0
+        assert pool.rolled_back == 1
+    else:
+        assert service.create_cpc(payload)["id_klient"] == 7
+        assert pool.executed[1][1][0] == 7
+        assert pool.committed == 1

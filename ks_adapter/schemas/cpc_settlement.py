@@ -119,7 +119,10 @@ class CpcValues(BaseModel):
 class CpcCreate(CpcValues):
     """Create a settlement; omitted year/month use the database current date."""
 
-    id_klient: int = Field(ge=1)
+    id_klient: int | None = Field(
+        default=None, ge=1,
+        description="Derived from the agreement; if supplied, must match its client ID",
+    )
     id_maszyna: int = Field(ge=1)
     id_umowacpc: int = Field(ge=1)
     rok: int | None = Field(
