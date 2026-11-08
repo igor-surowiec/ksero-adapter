@@ -1204,3 +1204,19 @@ def test_machine_client_path_respects_write_gate() -> None:
 
     with TestClient(create_app(make_settings(), service=ReadOnlyService())) as client:
         assert client.post("/api/v1/machines/7").status_code == 403
+
+
+@pytest.mark.parametrize("prefix", ["/api/v1", "/custom/v2"])
+def test_resource_routers_share_authentication_and_keep_metadata_public(
+    prefix: str,
+) -> None:
+    import re
+
+    app = create_app(make_settings(prefix=prefix, api_key="secret"), service=FakeService())
+    with TestClient(app) as client:
+        for path, operations in app.openapi()["paths"].items():
+            target = re.sub(r"\{[^}]+\}", "1", path)
+            public = path in {f"{prefix}/", f"{prefix}/health"}
+            for method in operations:
+                response = client.request(method.upper(), target)
+                assert response.status_code == (200 if public else 401), (method, path)

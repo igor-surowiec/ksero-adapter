@@ -50,7 +50,7 @@ python -m ks_adapter [--config C] [--host H] [--port P] [--log-level L] [--reloa
 ```
 uvicorn (ASGI)                     worker thread (every endpoint is a sync `def`)
    │                                     │
-   ├─ routing ──────────────────────────► api.create_router.<handler>
+   ├─ routing ──────────────────────────► routes.<resource>.<handler>
    │                                        ├─ Depends(require_api_key)  → 401
    │                                        ├─ FastAPI param/body checks → 422
    │                                        └─ Depends(get_service)      → app.state.service
@@ -246,7 +246,7 @@ isolated parents and verify totals across insertion, update and deletion.
 | Raised in | Type | HTTP |
 | --- | --- | --- |
 | `sql.py`, `service.py` | `InvalidRequest`, `QueryNotAllowed`, `ColumnNotFound` | `400` |
-| `api.py` | `AuthenticationError` | `401` |
+| `routes/common.py` | `AuthenticationError` | `401` |
 | `service.py` (writes) | `WritesDisabled` | `403` |
 | `schema.py` | `TableNotFound` | `404` |
 | `service.py` | `RecordNotFound` | `404` |
@@ -284,18 +284,30 @@ config errors work without the Firebird client. `ConfigError` → exit `2`, fail
 registers the router, enables GET/POST/PATCH/DELETE CORS for configured origins, and serves the
 unauthenticated `GET /` liveness route.
 
-**`api.py`** — the whole HTTP surface, built as a factory. `create_router(settings)`,
-`get_service()`, `require_api_key(settings)` (returns the `check_api_key` dependency,
-`hmac.compare_digest`, disabled when `api.api_key` is `None`), `FILTERS_DESCRIPTION`.
-Routes: `GET /`, `GET /health` (public), `GET /tables`, `GET /tables/{table}`,
-`POST /schema/refresh`, `GET /tables/{table}/rows`, `GET /clients`, `POST /clients`,
-`PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`,
-`GET /agreements`, `POST /agreements/{id_klient}`,
-`PATCH /agreements/{id_umowacpc}`, `GET /machines`, `POST /machines`, `PATCH /machines/{id_maszyna}`, `GET /orders`,
-`GET /invoices`, `POST /query` (relative to `api.prefix`); everything except the
-first two is protected by the shared `protected` dependency list. Parameter bounds
-are generated from the settings; handlers return plain dicts and the declared
-`response_model` does validation + OpenAPI.
+**`api.py`** — `create_router(settings)` composes resource routers under the
+configured prefix. It includes `routes.meta` publicly, then includes all data
+routers with one shared API-key dependency. The `get_service`, `require_api_key`
+and `FILTERS_DESCRIPTION` imports remain available from `ks_adapter.api` for
+existing callers and dependency overrides.
+
+**`routes/`** — endpoint handlers grouped by resource, each exposing a
+`create_router(settings)` factory:
+
+- `clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py` own their
+  resource's read/write handlers.
+- `orders.py` and `invoices.py` own their curated list endpoints.
+- `database.py` owns table/schema inspection, generic row access, schema refresh
+  and read-only SQL queries.
+- `meta.py` owns the public service information and health routes.
+- `common.py` holds `get_service()`, `require_api_key()` (constant-time API-key
+  comparison), `page_limit()` and `FILTERS_DESCRIPTION`.
+
+Resource modules contain HTTP validation and calls to `DatabaseService`, with
+no database work of their own. Prefix/authentication wiring stays in `api.py`;
+shared pagination limits come from the settings. Response models, paths,
+operation IDs and validation behavior are unchanged by the split. See README
+for the full endpoint list. Tests check API-key enforcement across all composed
+routes, including custom prefixes.
 
 **`config.py`** — the only module that reads files or the environment. `load_config()`
 runs a fixed pipeline: explicit path → `$KS_CONFIG` → `<project>/config/config.yaml` →
@@ -466,8 +478,8 @@ another database needs no code change.
 ## 3. Adding an endpoint, a field or a setting
 
 1. **New endpoint** — method in `service.py` (reuse `_projection_page()` for a curated
-   view), response model in `schemas.py`, route inside `api.create_router` with
-   `dependencies=protected`, then a row in the `README.md` endpoint table.
+   view), response model in `schemas.py`, route in the matching `routes/`
+   module (registered through `api.create_router` for authentication), then a row in the `README.md` endpoint table.
    A **writing** endpoint is the exception: it must be gated by `api.allow_writes`
    (raise `errors.WritesDisabled` → `403`), build its statement with
    `sql.build_insert()` / `sql.build_update()`, execute via `_write_row()`, and have a

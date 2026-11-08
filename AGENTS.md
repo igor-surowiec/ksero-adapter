@@ -71,8 +71,10 @@ marker.
 
 ## Layout
 
-- `ks_adapter/api.py` - routes (`create_router`), `get_service`,
-  `require_api_key`.
+- `ks_adapter/api.py` - router composition and shared API-key enforcement.
+- `ks_adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
+  `machines.py`, `cpc_settlement.py`, `orders.py`, `invoices.py`,
+  `database.py`, public `meta.py`); `common.py` holds shared dependencies.
 - `ks_adapter/service.py` - `DatabaseService`, curated tables/fields, paging,
   `create_client()`, `create_machine()`, `create_agreement()`, `update_client()`
   `update_machine()` and `delete_client()`.
@@ -106,8 +108,9 @@ marker.
 1. Constants in `service.py`: `X_TABLE`, `X_COLUMNS`, `X_SEARCH_COLUMNS`.
 2. `fetch_x()` that calls `_projection_page(...)` and renames `rows` to the
    plural key.
-3. Models in `schemas.py` and a route in `api.create_router` with
-   `dependencies=protected`.
+3. Models in `schemas.py` and a route in the appropriate `routes/` module.
+   Resource routers are protected centrally by `api.create_router`; only
+   `routes/meta.py` is public. Register any new resource module in `api.py`.
 4. `FakeService.fetch_x` in `tests/conftest.py`, tests in `test_api.py` /
    `test_service.py`, and live coverage in `test_integration.py` when it helps.
 5. A row in the README endpoint table; `/docs` documents the fields.
