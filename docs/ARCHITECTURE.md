@@ -368,6 +368,11 @@ when the block raises; the only committing code path), `ping()` (a trivial query
 `server_version`), `stats` (`created`/`idle`/`capacity` for `/health`) and `close()`.
 Saturation waits up to `acquire_timeout` and then raises `DatabaseUnavailable` (503,
 never a hang); broken connections are discarded, so the pool survives a restart.
+On macOS ARM64, client initialization replaces ``fdb``'s variadic
+``isc_start_transaction`` binding with the fixed-signature
+``isc_start_multiple`` API for single-database transactions. This preserves the
+transaction parameters while avoiding the Apple Silicon calling-convention
+mismatch. Driver initialization is protected by a process-wide lock.
 
 **`schema.py`** — catalog introspection + TTL cache. Reads `RDB$RELATIONS` and
 `RDB$RELATION_FIELDS`/`RDB$FIELDS`/`RDB$CHARACTER_SETS`, maps `RDB$FIELD_TYPE` ids to SQL

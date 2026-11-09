@@ -2,23 +2,58 @@
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import platform
 import queue
+import sys
 import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Iterator
 
 import fdb
+from fdb import ibase
 
 from .config import DatabaseSettings
 from .errors import DatabaseUnavailable
 
 logger = logging.getLogger(__name__)
+_client_api_lock = threading.Lock()
+
+
+def _configure_macos_transactions(api: Any) -> None:
+    """Avoid the legacy driver's variadic transaction binding on Apple Silicon."""
+    if getattr(api, "_ks_adapter_arm64_transactions", False):
+        return
+    start_multiple = api.isc_start_multiple
+
+    def start_transaction(
+        status: Any,
+        transaction: Any,
+        count: int,
+        database: Any,
+        length: int,
+        tpb: bytes,
+    ) -> Any:
+        if count != 1:
+            raise fdb.ProgrammingError("Expected a single database transaction")
+        # fdb declares all arguments to isc_start_transaction as fixed, but
+        # Apple ARM64 passes variadic arguments differently. The fixed-signature
+        # API starts the same transaction without relying on that ABI binding.
+        teb = ibase.ISC_TEB(ctypes.pointer(database), length, tpb)
+        return start_multiple(status, transaction, count, ctypes.byref(teb))
+
+    api.isc_start_transaction = start_transaction
+    api._ks_adapter_arm64_transactions = True
 
 
 def connect(settings: DatabaseSettings) -> Any:
     """Open a new Firebird connection based on ``settings``."""
+    if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+        # Configure the process-wide driver API before any thread can use it.
+        with _client_api_lock:
+            _configure_macos_transactions(fdb.load_api(settings.client_library))
     kwargs: dict[str, Any] = {
         "dsn": settings.dsn,
         "user": settings.user,

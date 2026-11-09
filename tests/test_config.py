@@ -40,7 +40,7 @@ KS_VARS = [
 
 MINIMAL = """
 database:
-  path: C:/fake/test.fdb
+  path: fake/test.fdb
   check_path: false
 """
 
@@ -60,11 +60,12 @@ def write_config(tmp_path: Path, text: str) -> Path:
 def test_load_minimal_configuration(tmp_path: Path) -> None:
     settings = load_config(write_config(tmp_path, MINIMAL))
 
-    assert settings.database.path == "C:/fake/test.fdb"
+    expected_path = str((PROJECT_ROOT / "fake/test.fdb").resolve())
+    assert settings.database.path == expected_path
     assert settings.database.user == "SYSDBA"
     assert settings.database.charset == "UTF8"
     assert settings.database.pool_size == 5
-    assert settings.database.dsn == "C:/fake/test.fdb"
+    assert settings.database.dsn == expected_path
     assert settings.server.host == "127.0.0.1"
     assert settings.server.port == 8000
     assert settings.api.prefix == "/api/v1"
@@ -81,14 +82,16 @@ def test_environment_variable_defaults(tmp_path: Path) -> None:
         tmp_path,
         """
         database:
-          path: ${KS_DB_PATH:-D:/fake/fallback.fdb}
+          path: ${KS_DB_PATH:-fake/fallback.fdb}
           password: ${SOME_UNSET_PASSWORD:-secret}
           charset: ${ANOTHER_UNSET:-WIN1250}
           check_path: false
         """,
     )
     settings = load_config(config)
-    assert settings.database.path == "D:/fake/fallback.fdb"
+    assert settings.database.path == str(
+        (PROJECT_ROOT / "fake/fallback.fdb").resolve()
+    )
     assert settings.database.password == "secret"
     assert settings.database.charset == "WIN1250"
 
@@ -320,7 +323,8 @@ def test_remote_database_keeps_relative_path_untouched(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("path", "host", "expected"),
     [
-        ("C:/fake/baza.fdb", None, "C:/fake/baza.fdb"),
+        (str(PROJECT_ROOT / "fake/baza.fdb"), None,
+         str(PROJECT_ROOT / "fake/baza.fdb")),
         ("C:/fake/baza.fdb", "10.0.0.5", "C:/fake/baza.fdb"),
         ("BAZAMS.FDB", None, str((PROJECT_ROOT / "BAZAMS.FDB").resolve())),
         ("BAZAMS.FDB", "10.0.0.5", "BAZAMS.FDB"),

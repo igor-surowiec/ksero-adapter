@@ -23,3 +23,24 @@ and a relative `database.path` is resolved against the project root (so
 
 `api.max_query_rows` / `KS_MAX_QUERY_ROWS` caps local Python diagnostic queries;
 it is not used by an HTTP query route.
+
+## macOS Firebird client
+
+Use a native Firebird client matching the Python process architecture. If the
+framework client fails to load with ``@rpath/lib/libtommath.dylib`` and
+``no LC_RPATH's found``, start the adapter with its dependency directory:
+
+```bash
+export DYLD_LIBRARY_PATH=/Library/Frameworks/Firebird.framework/Versions/A/Resources/lib
+.venv/bin/python -m ks_adapter --check
+.venv/bin/python -m ks_adapter
+```
+
+``KS_FB_CLIENT`` selects the client library itself; it does not configure the
+loader's dependency search path. The adapter applies a transaction-binding
+compatibility fix for ``fdb`` on Apple Silicon automatically.
+
+For embedded local access, the process also needs access to Firebird's runtime
+directory (typically ``/tmp/firebird``) and read/write access to the database
+file. After adding a user to the ``firebird`` group, log out and back in, and
+restart the adapter so it inherits the updated groups.
