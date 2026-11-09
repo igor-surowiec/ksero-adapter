@@ -8,8 +8,8 @@ from typing import Any, Iterator
 
 import pytest
 
-from ks_adapter.config import ApiSettings, AppSettings, DatabaseSettings, ServerSettings
-from ks_adapter.errors import (
+from adapter.config import ApiSettings, AppSettings, DatabaseSettings, ServerSettings
+from adapter.errors import (
     ColumnNotFound,
     InvalidRequest,
     QueryNotAllowed,
@@ -18,8 +18,8 @@ from ks_adapter.errors import (
     TableNotFound,
     WritesDisabled,
 )
-from ks_adapter.schema import ColumnInfo, TableInfo
-from ks_adapter.service import DatabaseService
+from adapter.schema import ColumnInfo, TableInfo
+from adapter.service import DatabaseService
 
 APPUSER = TableInfo(
     name="APPUSER",
@@ -1012,8 +1012,8 @@ def test_fetch_orders_requires_known_columns() -> None:
 
 def test_order_search_list_stays_within_the_firebird_message_limit() -> None:
     """A wider list would fail to prepare with "Implementation limit exceeded"."""
-    from ks_adapter.service import ORDER_SEARCH_COLUMNS
-    from ks_adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
+    from adapter.service import ORDER_SEARCH_COLUMNS
+    from adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
 
     assert len(ORDER_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
     assert len(set(ORDER_SEARCH_COLUMNS)) == len(ORDER_SEARCH_COLUMNS)
@@ -1120,8 +1120,8 @@ def test_fetch_invoices_requires_known_columns() -> None:
 
 
 def test_invoice_search_list_stays_within_the_firebird_message_limit() -> None:
-    from ks_adapter.service import INVOICE_SEARCH_COLUMNS
-    from ks_adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
+    from adapter.service import INVOICE_SEARCH_COLUMNS
+    from adapter.sql import LIKE_PARAMETER_BYTES, MAX_MESSAGE_BYTES
 
     assert len(INVOICE_SEARCH_COLUMNS) * LIKE_PARAMETER_BYTES <= MAX_MESSAGE_BYTES
     assert len(set(INVOICE_SEARCH_COLUMNS)) == len(INVOICE_SEARCH_COLUMNS)
@@ -1278,7 +1278,7 @@ def test_create_client_accepts_upper_cased_field_names() -> None:
 
 
 def test_create_client_carries_the_legacy_application_defaults() -> None:
-    from ks_adapter.service import CLIENT_INSERT_DEFAULTS, CLIENT_TEXT_LENGTHS
+    from adapter.service import CLIENT_INSERT_DEFAULTS, CLIENT_TEXT_LENGTHS
 
     # The values the program itself writes; a row without them never appears in
     # its client list, so they are part of the contract, not cosmetics.
@@ -1634,7 +1634,7 @@ def test_create_machine_rolls_back_when_the_insert_fails() -> None:
 def test_create_machine_reuses_the_curated_column_lists() -> None:
     """The write payload must not reach columns the projection does not serve."""
 
-    from ks_adapter.service import (
+    from adapter.service import (
         MACHINE_COLUMNS,
         MACHINE_TEXT_LENGTHS,
         MACHINE_WRITE_COLUMNS,
@@ -1915,7 +1915,7 @@ def test_create_agreement_requires_business_and_client_columns() -> None:
 
 
 def test_create_agreement_reserves_table_before_allocating_id() -> None:
-    from ks_adapter.sql import build_next_available_id
+    from adapter.sql import build_next_available_id
 
     pool = _Pool([(None, [(3,)]), (None, [(date(2026, 11, 8),)]),
                   (None, [(12, 3, 7, "3/2026", "", "$_$", 0)])])
@@ -2479,7 +2479,7 @@ def test_create_cpc_rolls_back_when_database_date_is_missing() -> None:
     service = make_projection_service(
         pool, CPC_STUB, AGREEMENT_WRITABLE, allow_writes=True,
     )
-    from ks_adapter.errors import DatabaseUnavailable
+    from adapter.errors import DatabaseUnavailable
 
     with pytest.raises(DatabaseUnavailable):
         service.create_cpc({"id_klient": 7, "id_maszyna": 9, "id_umowacpc": 3})
@@ -2511,7 +2511,7 @@ def test_create_agreement_defaults_number_to_generated_id_and_current_year(
 
 
 def test_create_machine_uses_full_legacy_profile_and_caller_overrides() -> None:
-    from ks_adapter.service import MACHINE_INSERT_DEFAULTS, MACHINE_COLUMNS
+    from adapter.service import MACHINE_INSERT_DEFAULTS, MACHINE_COLUMNS
     import re
 
     columns = [

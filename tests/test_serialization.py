@@ -7,7 +7,7 @@ import datetime as dt
 import math
 from decimal import Decimal
 
-from ks_adapter.serialization import (
+from adapter.serialization import (
     row_to_dict,
     serialize_rows,
     to_jsonable,

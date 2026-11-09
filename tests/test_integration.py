@@ -20,16 +20,16 @@ from typing import Any, Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from ks_adapter.app import create_app
-from ks_adapter.config import (
+from adapter.app import create_app
+from adapter.config import (
     ApiSettings,
     AppSettings,
     DatabaseSettings,
     ServerSettings,
     resolve_database_path,
 )
-from ks_adapter.errors import QueryNotAllowed, RecordNotFound, WritesDisabled
-from ks_adapter.service import DatabaseService
+from adapter.errors import QueryNotAllowed, RecordNotFound, WritesDisabled
+from adapter.service import DatabaseService
 
 DB_PATH = os.environ.get("KS_TEST_DB_PATH")
 WRITABLE = os.environ.get("KS_TEST_DB_WRITABLE")
@@ -223,7 +223,7 @@ def test_orders_search_spans_many_columns_without_hitting_the_limit(
     service: DatabaseService,
 ) -> None:
     """Every curated column must exist and still prepare together."""
-    from ks_adapter.service import ORDER_COLUMNS, ORDERS_TABLE, ORDER_SEARCH_COLUMNS
+    from adapter.service import ORDER_COLUMNS, ORDERS_TABLE, ORDER_SEARCH_COLUMNS
 
     columns = service.describe_table(ORDERS_TABLE)["columns"]
     names = {column["name"].upper() for column in columns}
@@ -262,7 +262,7 @@ def test_invoices_endpoint_over_http(service: DatabaseService) -> None:
 
 def test_invoice_columns_match_the_live_schema(service: DatabaseService) -> None:
     """Every curated column must exist and still prepare in one statement."""
-    from ks_adapter.service import (
+    from adapter.service import (
         INVOICE_COLUMNS,
         INVOICES_TABLE,
         INVOICE_SEARCH_COLUMNS,
@@ -356,10 +356,10 @@ def test_create_client_matches_the_legacy_row_profile(
     """A bridged client must look exactly like one the program created.
 
     The program filters its client list by ``ID_FIRMA`` and leans on the other
-    columns of :data:`ks_adapter.service.CLIENT_INSERT_DEFAULTS`, so this test
+    columns of :data:`adapter.service.CLIENT_INSERT_DEFAULTS`, so this test
     reads them straight from the stored row, outside the curated projection.
     """
-    from ks_adapter.service import CLIENT_INSERT_DEFAULTS
+    from adapter.service import CLIENT_INSERT_DEFAULTS
 
     name = f"KS ADAPTER PROFILE {os.getpid()}"
     created = write_service.create_client({"nazwa": name})
@@ -806,7 +806,7 @@ def test_update_machine_endpoint_preserves_omitted_fields(
 def test_update_machine_rejects_ambiguous_id_over_http(
     write_service: DatabaseService,
 ) -> None:
-    from ks_adapter.sql import build_update
+    from adapter.sql import build_update
 
     owner = write_service.create_client({"nazwa": "KS ADAPTER MACHINE OWNER TEST"})
     machines = []
@@ -953,7 +953,7 @@ def test_agreement_machine_links_are_optional_exact_and_atomic(
 def test_agreement_links_reject_duplicate_machine_business_ids(
     write_service: DatabaseService,
 ) -> None:
-    from ks_adapter.sql import build_update
+    from adapter.sql import build_update
 
     owner = write_service.create_client({"nazwa": "KS ADAPTER AMBIGUOUS LINK TEST"})
     machines = []
@@ -1313,7 +1313,7 @@ def test_create_machine_rejects_missing_manufacturer_without_inserting(
 def test_delete_machine_endpoint_removes_machine_and_orders(
     write_service: DatabaseService,
 ) -> None:
-    from ks_adapter.sql import build_insert
+    from adapter.sql import build_insert
 
     owner = write_service.create_client({"nazwa": "KS ADAPTER DELETE MACHINE TEST"})
     machine = other = None

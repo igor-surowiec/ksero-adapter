@@ -75,7 +75,7 @@ ORDER_COLUMNS: tuple[str, ...] = (
 #:
 #: Deliberately a subset: Firebird sizes the parameter message from the number
 #: of ``LIKE`` predicates and rejects more than
-#: :data:`ks_adapter.sql.MAX_SEARCH_COLUMNS` of them, so "every text column"
+#: :data:`adapter.sql.MAX_SEARCH_COLUMNS` of them, so "every text column"
 #: (which ``ZLECENIE`` has plenty of) could never be searched in one statement.
 ORDER_SEARCH_COLUMNS: tuple[str, ...] = (
     "NAZWA",
@@ -121,7 +121,7 @@ class OrdersService(BaseDatabaseService):
         * :data:`ORDER_COLUMNS` is a hand-picked projection instead of
           ``SELECT *``, which keeps the fetch message small;
         * :data:`ORDER_SEARCH_COLUMNS` holds fewer columns than
-          :data:`ks_adapter.sql.MAX_SEARCH_COLUMNS`, because every ``search``
+          :data:`adapter.sql.MAX_SEARCH_COLUMNS`, because every ``search``
           predicate is bound as a ``VARCHAR(1024)`` parameter and Firebird
           rejects a wider parameter message with "Implementation limit
           exceeded".

@@ -1,4 +1,4 @@
-"""Command line entry point: ``python -m ks_adapter``."""
+"""Command line entry point: ``python -m adapter``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .config import CONFIG_ENV_VAR, ConfigError, LOG_LEVELS, load_config
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ks_adapter",
+        prog="adapter",
         description="Run the read-only Firebird HTTP adapter.",
     )
     parser.add_argument(
@@ -65,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if settings.config_path is not None:
             os.environ[CONFIG_ENV_VAR] = str(settings.config_path)
         uvicorn.run(
-            "ks_adapter.app:create_app",
+            "adapter.app:create_app",
             factory=True,
             host=host,
             port=port,

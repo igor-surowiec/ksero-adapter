@@ -1,0 +1,29 @@
+[project]
+name = "ks-adapter"
+version = "1.0.0"
+description = "FastAPI bridge for a Firebird database"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.100,<1.0",
+    "uvicorn>=0.23,<1.0",
+    "fdb>=2.0.4,<3.0",
+    "PyYAML>=6.0,<7.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.25",
+]
+
+[project.scripts]
+adapter = "adapter.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "adapter"
+module-root = ""

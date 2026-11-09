@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from ks_adapter.errors import ColumnNotFound, InvalidRequest, QueryNotAllowed
-from ks_adapter.sql import (
+from adapter.errors import ColumnNotFound, InvalidRequest, QueryNotAllowed
+from adapter.sql import (
     LIKE_PARAMETER_BYTES,
     MAX_MESSAGE_BYTES,
     MAX_SEARCH_COLUMNS,
@@ -262,7 +262,7 @@ def test_build_search_accepts_exactly_the_budgeted_number_of_columns() -> None:
 
 
 def test_build_update_quotes_identifiers_and_requires_assignments() -> None:
-    from ks_adapter.sql import build_update
+    from adapter.sql import build_update
 
     assert build_update('we"ird', ["NAME"], key="ID", returning=["ID"]) == (
         'UPDATE "we""ird" SET "NAME" = ? WHERE "ID" = ? RETURNING "ID"'
@@ -272,7 +272,7 @@ def test_build_update_quotes_identifiers_and_requires_assignments() -> None:
 
 
 def test_build_delete_quotes_identifiers_and_binds_the_key() -> None:
-    from ks_adapter.sql import build_delete
+    from adapter.sql import build_delete
 
     assert build_delete('we"ird', key='I"D') == (
         'DELETE FROM "we""ird" WHERE "I""D" = ? RETURNING "I""D"'
@@ -287,7 +287,7 @@ def test_next_available_id_finds_the_first_positive_gap(
     occupied: list[int | None], expected: int,
 ) -> None:
     import sqlite3
-    from ks_adapter.sql import build_next_available_id
+    from adapter.sql import build_next_available_id
 
     with sqlite3.connect(":memory:") as connection:
         connection.execute('CREATE TABLE "RDB$DATABASE" (DUMMY INTEGER)')

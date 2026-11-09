@@ -7,8 +7,8 @@ from typing import Any, Mapping
 import pytest
 from fastapi.testclient import TestClient
 
-from ks_adapter.app import create_app
-from ks_adapter.errors import (
+from adapter.app import create_app
+from adapter.errors import (
     InvalidRequest,
     RecordConflict,
     RecordNotFound,

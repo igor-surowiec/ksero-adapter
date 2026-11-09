@@ -9,8 +9,8 @@ import fdb
 import pytest
 from fdb import ibase
 
-from ks_adapter.config import DatabaseSettings
-from ks_adapter.pool import ConnectionPool, _configure_macos_transactions
+from adapter.config import DatabaseSettings
+from adapter.pool import ConnectionPool, _configure_macos_transactions
 
 
 class _ClientAPI:

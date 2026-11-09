@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ks_adapter.config import (
+from adapter.config import (
     PROJECT_ROOT,
     ConfigError,
     load_config,

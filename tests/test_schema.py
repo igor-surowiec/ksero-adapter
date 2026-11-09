@@ -7,9 +7,9 @@ from typing import Any, Iterator
 
 import pytest
 
-from ks_adapter import schema as schema_module
-from ks_adapter.errors import TableNotFound
-from ks_adapter.schema import SchemaCache, describe_type
+from adapter import schema as schema_module
+from adapter.errors import TableNotFound
+from adapter.schema import SchemaCache, describe_type
 
 TABLE_ROWS = [
     ("APPUSER", 0, None),

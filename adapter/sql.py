@@ -387,7 +387,7 @@ def build_search(
     """Build an ``OR``-ed ``LIKE`` clause searching ``term`` in ``candidates``.
 
     ``columns`` maps upper-cased column names to their canonical spelling (as
-    stored in :class:`~ks_adapter.schema.TableInfo`), which validates the
+    stored in :class:`~adapter.schema.TableInfo`), which validates the
     identifiers and prevents SQL injection.  Candidates missing from the table
     are skipped so a schema change cannot break the endpoint.  The search term
     is bound as a parameter and LIKE wildcards are escaped, so the term is

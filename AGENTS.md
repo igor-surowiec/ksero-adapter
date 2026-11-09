@@ -48,24 +48,24 @@ get wrong.
 
 ## Environment and commands
 
-The project targets Python 3.10 and ships a virtualenv at `.venv`. Prefer the
-explicit interpreter path - on Windows `python` may resolve elsewhere.
+The project targets Python 3.10+ and uses uv to manage `.venv` and the locked
+dependencies. Run commands from the project directory; no activation is needed.
 
 ```bash
-.venv/Scripts/python.exe -m pytest           # Windows (Git Bash or cmd)
-.venv/bin/python -m pytest                   # Linux / macOS
-pip install -r requirements-dev.txt          # runtime deps + pytest + httpx
+uv sync --locked                             # runtime deps + pytest + httpx
+uv run --locked adapter --check  # config + DB smoke test
+uv run --locked adapter          # serve :8000, docs at /docs
+uv run --locked python -m pytest -q           # offline suite, no database
+KS_TEST_DB_PATH=BAZAMS.FDB uv run --locked python -m pytest -q  # + live DB
+KS_TEST_DB_PATH=BAZAMS.FDB KS_TEST_DB_WRITABLE=1 uv run --locked python -m pytest -q
+                                             # + the create-client tests
+uv run --locked python -m pytest tests/test_api.py -q -k orders  # one test
 ```
 
-```bash
-.venv/Scripts/python.exe -m ks_adapter --check   # config + DB smoke test
-.venv/Scripts/python.exe -m ks_adapter           # serve :8000, docs at /docs
-.venv/Scripts/python.exe -m pytest -q            # offline suite, no database
-KS_TEST_DB_PATH=BAZAMS.FDB .venv/Scripts/python.exe -m pytest -q  # + live DB
-KS_TEST_DB_PATH=BAZAMS.FDB KS_TEST_DB_WRITABLE=1 .venv/Scripts/python.exe -m pytest -q
-                                                 # + the create-client tests
-.venv/Scripts/python.exe -m pytest tests/test_api.py -q -k orders  # one test
-```
+`pyproject.toml` declares dependency ranges and the `dev` group; `uv.lock` pins
+resolved versions. Commit both when changing dependencies. Use
+`uv sync --locked --no-dev` and `uv run --locked --no-dev adapter`
+for runtime-only installations.
 
 Runtime dependencies are `fastapi`, `uvicorn`, `fdb` and `PyYAML` only; the
 suite adds `pytest` and `httpx`. Do not add a dependency without being asked.
@@ -74,28 +74,28 @@ marker.
 
 ## Layout
 
-- `ks_adapter/api.py` - router composition and shared API-key enforcement.
-- `ks_adapter/static/api_tester.html` - buildless API tester at the exact API
+- `adapter/api.py` - router composition and shared API-key enforcement.
+- `adapter/static/api_tester.html` - buildless API tester at the exact API
   prefix; inputs come from OpenAPI and requests run only on submission.
-- `ks_adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
+- `adapter/routes/` - resource routers (`clients.py`, `agreements.py`,
   `machines.py`, `cpc_settlement.py`, `orders.py`, `invoices.py`,
   public `meta.py`); `common.py` holds shared dependencies.
-- `ks_adapter/service/` - `DatabaseService` facade in `__init__.py`; resource
+- `adapter/service/` - `DatabaseService` facade in `__init__.py`; resource
   operations and constants in `clients.py`, `agreements.py`, `machines.py`,
   `cpc_settlement.py`, `orders.py`, `invoices.py`; shared pool/cache/query/write
   helpers in `base.py`. Every resource shares the facade's pool and cache.
-- `ks_adapter/sql.py` - read-only guard, `build_insert()` / `build_update()`,
+- `adapter/sql.py` - read-only guard, `build_insert()` / `build_update()`,
   filters, ordering, `LIKE` search.
-- `ks_adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
-- `ks_adapter/pool.py` - thread-safe connection pool (`session()`,
+- `adapter/schema.py` - TTL schema cache (`SchemaCache`), table/column info.
+- `adapter/pool.py` - thread-safe connection pool (`session()`,
   `write_session()`, `ping()`).
-- `ks_adapter/serialization.py` - Firebird to JSON types, `row_to_dict()`.
-- `ks_adapter/schemas/` - Pydantic wire models by matching resource, plus
+- `adapter/serialization.py` - Firebird to JSON types, `row_to_dict()`.
+- `adapter/schemas/` - Pydantic wire models by matching resource, plus
   `meta.py` and shared `common.py`. `__init__.py` re-exports the
   existing model names to preserve public imports.
-- `ks_adapter/config.py` - YAML + `${VAR}` + `KS_*` settings, validation.
-- `ks_adapter/errors.py` - `AdapterError` subclasses carrying HTTP statuses.
-- `ks_adapter/app.py` - app factory, exception handlers, CORS, lifespan.
+- `adapter/config.py` - YAML + `${VAR}` + `KS_*` settings, validation.
+- `adapter/errors.py` - `AdapterError` subclasses carrying HTTP statuses.
+- `adapter/app.py` - app factory, exception handlers, CORS, lifespan.
 - `tests/` - `conftest.py` (`FakeService`, `client`), unit, API, integration.
 
 ## Recipes
@@ -210,9 +210,10 @@ the variable is public.
 
 ## Definition of done
 
-1. `python -m pytest -q` green; the live suite green when a database is
-   available.
-2. `python -m ks_adapter --check` still passes after config/service changes.
+1. `uv run --locked python -m pytest -q` green; the live suite green when a
+   database is available.
+2. `uv run --locked adapter --check` still passes after
+   config/service changes.
 3. Routes, configuration and architecture docs updated when their contracts change.
 4. No scratch files left behind (`.tmp_*` is git-ignored but must not be
    committed) and no `.fdb` in the diff.

@@ -22,7 +22,7 @@ from typing import Any, Mapping
 import yaml
 
 CONFIG_ENV_VAR = "KS_CONFIG"
-# Directory containing ``config/`` and the ``ks_adapter`` package.  Relative
+# Directory containing ``config/`` and the ``adapter`` package.  Relative
 # ``database.path`` values are resolved against it.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
@@ -102,7 +102,7 @@ class DatabaseSettings:
 
 @dataclass(frozen=True)
 class ServerSettings:
-    """HTTP server settings used by ``python -m ks_adapter``."""
+    """HTTP server settings used by ``python -m adapter``."""
 
     host: str = "127.0.0.1"
     port: int = 8000

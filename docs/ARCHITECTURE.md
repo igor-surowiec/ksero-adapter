@@ -2,7 +2,8 @@
 
 `ks-adapter` is a small **HTTP gateway in front of a Firebird database**
 (verified against Firebird 2.5). It is one Python package, started as
-`python -m ks_adapter`, which serves a FastAPI app through uvicorn. It is
+`uv run --locked adapter`, which serves a FastAPI app through
+uvicorn. It is
 read-only by default: the writing routes (`POST /clients`, `POST /machines/{id_klient}`, `POST /cpc-agreements/{id_klient}`,
 `PATCH /clients/{id_klient}`, `PATCH /machines/{id_maszyna}`,
 `PATCH /cpc-agreements/{id_umowacpc}`,
@@ -21,7 +22,7 @@ HTTP contract are in [CONFIGURATION.md](CONFIGURATION.md) and
 ### 1.1 Startup
 
 ```
-python -m ks_adapter [--config C] [--host H] [--port P] [--log-level L] [--reload] [--check]
+uv run --locked adapter [--config C] [--host H] [--port P] [--log-level L] [--reload] [--check]
         │
   __main__.main()      argparse → config.load_config() → CLI overrides → root logger
         ├── --check    → service.health() + service.list_tables()
@@ -29,7 +30,7 @@ python -m ks_adapter [--config C] [--host H] [--port P] [--log-level L] [--reloa
         └── otherwise  → uvicorn.run(...)
                              │
                       app.create_app(settings)
-                             ├─ FastAPI(title, version = ks_adapter.__version__, lifespan,
+                             ├─ FastAPI(title, version = adapter.__version__, lifespan,
                              │          error handlers, CORS only if api.cors_origins)
                              ├─ app.state.settings / app.state.service = DatabaseService(settings)
                              ├─ api.create_router(settings)   → all routes, prefix from settings
@@ -44,7 +45,7 @@ python -m ks_adapter [--config C] [--host H] [--port P] [--log-level L] [--reloa
   pool fill lazily on the first request, so an unreachable database gives `503`
   instead of a failed boot.
 - `--reload` cannot receive an app object, so the config path is exported to
-  `KS_CONFIG` and uvicorn imports `ks_adapter.app:create_app` as a factory.
+  `KS_CONFIG` and uvicorn imports `adapter.app:create_app` as a factory.
 
 ### 1.2 Request pipeline
 
@@ -291,7 +292,7 @@ Shutdown: uvicorn stops → `lifespan` exits → `DatabaseService.close()` →
 
 ## 2. Files
 
-### Package `ks_adapter/`
+### Package `adapter/`
 
 **`__init__.py`** — package marker. Defines `__version__`, the single source of the
 version in the OpenAPI schema, `GET /`, `GET /api/v1/` and the startup log line.
@@ -312,7 +313,7 @@ unauthenticated `GET /` liveness route.
 configured prefix. It registers the public HTML tester at the exact prefix,
 includes `routes.meta` publicly, then includes all data
 routers with one shared API-key dependency. The `get_service`, `require_api_key`
-and `FILTERS_DESCRIPTION` imports remain available from `ks_adapter.api` for
+and `FILTERS_DESCRIPTION` imports remain available from `adapter.api` for
 existing callers and dependency overrides.
 
 **`routes/`** — endpoint handlers grouped by resource, each exposing a
@@ -408,7 +409,7 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 constants. The resource classes inherit `BaseDatabaseService`, which appears
 once in the facade's inheritance chain: its initializer creates one pool and
 one schema cache. Resource methods continue using that same state and the same
-transaction helpers. Existing imports from `ks_adapter.service` keep working.
+transaction helpers. Existing imports from `adapter.service` keep working.
 
 - `clients.py` — client projections, validation widths, legacy defaults,
   list/create/update/delete methods.
@@ -462,7 +463,7 @@ modules (`clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py`,
 `orders.py`, `invoices.py`). Related models and their inheritance stay together.
 `meta.py` holds service/health/pool models; `common.py` defines `DecimalValue`.
 `__init__.py` re-exports existing model names, preserving imports from
-`ks_adapter.schemas`. Routes import their resource models directly. Model
+`adapter.schemas`. Routes import their resource models directly. Model
 names, field constraints, response shapes and OpenAPI schemas are unchanged.
 
 ### Repository files
@@ -489,9 +490,12 @@ when `KS_TEST_DB_PATH` points at a real database; the write tests additionally n
 
 **`pytest.ini`** — limits collection to `tests/` and registers the `integration` marker.
 
-**`requirements.txt`** — runtime only: `fastapi`, `uvicorn`, `fdb`, `PyYAML`.
-**`requirements-dev.txt`** — the above plus `pytest` and `httpx` (required by
-`TestClient`).
+**`pyproject.toml`** — project metadata and runtime dependencies: `fastapi`,
+`uvicorn`, `fdb`, `PyYAML`. The `dev` dependency group adds `pytest` and `httpx`
+(required by `TestClient`). The app is installed editably by uv, with an
+`adapter` console command.
+**`uv.lock`** — resolved dependency versions for reproducible `uv sync --locked`
+installs; uv manages the local `.venv`.
 
 **`.gitignore`** — bytecode, virtualenvs, `.pytest_cache/`, coverage, logs, `.tmp_*` and
 `*.fdb`/`*.FDB`, so the database (and its customer data) is never committed.
@@ -532,5 +536,6 @@ another database needs no code change.
 3. **New setting** — `config.py` (`_ENV_OVERRIDES`, dataclass field,
    `_build_settings`), `config/config.yaml`, plus the `docs/CONFIGURATION.md` environment table when the
    variable should be public.
-4. Verify with `python -m ks_adapter --check` and `python -m pytest`.
+4. Verify with `uv run --locked adapter --check` and
+   `uv run --locked python -m pytest`.
 

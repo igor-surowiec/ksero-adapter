@@ -32,8 +32,8 @@ framework client fails to load with ``@rpath/lib/libtommath.dylib`` and
 
 ```bash
 export DYLD_LIBRARY_PATH=/Library/Frameworks/Firebird.framework/Versions/A/Resources/lib
-.venv/bin/python -m ks_adapter --check
-.venv/bin/python -m ks_adapter
+uv run --locked --no-dev adapter --check
+uv run --locked --no-dev adapter
 ```
 
 ``KS_FB_CLIENT`` selects the client library itself; it does not configure the

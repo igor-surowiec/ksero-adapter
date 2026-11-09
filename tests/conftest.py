@@ -7,14 +7,14 @@ from typing import Any, Mapping
 import pytest
 from fastapi.testclient import TestClient
 
-from ks_adapter.app import create_app
-from ks_adapter.config import (
+from adapter.app import create_app
+from adapter.config import (
     ApiSettings,
     AppSettings,
     DatabaseSettings,
     ServerSettings,
 )
-from ks_adapter.serialization import to_jsonable
+from adapter.serialization import to_jsonable
 
 
 def make_settings(**api_kwargs: Any) -> AppSettings:
@@ -28,7 +28,7 @@ def make_settings(**api_kwargs: Any) -> AppSettings:
 
 
 class FakeService:
-    """In-memory stand-in for :class:`ks_adapter.service.DatabaseService`."""
+    """In-memory stand-in for :class:`adapter.service.DatabaseService`."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
