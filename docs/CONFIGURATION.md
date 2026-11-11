@@ -15,14 +15,61 @@ without touching the file:
 | `KS_DEFAULT_LIMIT`, `KS_MAX_LIMIT` | API page caps |
 
 Unknown keys are rejected, the password is meant to come from the environment,
-and a relative `database.path` is resolved against the project root (so
-`BAZAMS.FDB` works from any working directory). The remaining settings
+and a relative `database.path` is resolved against the project root when no
+database host is set. With a host set, the path or alias is resolved by the
+Firebird server. The remaining settings
 (`pool_size`, `check_path`, `schema_cache_ttl`, `decimal_as_string`,
 `cors_origins`, ...) are documented inline in the YAML file.
 
 
 `api.max_query_rows` / `KS_MAX_QUERY_ROWS` caps local Python diagnostic queries;
 it is not used by an HTTP query route.
+
+## Selecting the database file
+
+Set `database.path` directly in `config/config.yaml`. Use an absolute path on
+the machine running the Firebird server; the file can live outside this
+project. For example, for the local Linux server:
+
+```yaml
+database:
+  path: /home/igor/Work/BAZAMS.FDB
+  host: 127.0.0.1
+  port: 3050
+```
+
+For a Windows Firebird server, use that server's hostname and Windows path:
+
+```yaml
+database:
+  path: 'C:\Data\BAZAMS.FDB'
+  host: windows-server
+  port: 3050
+```
+
+Keep the remaining database settings when editing these fields. The existing
+`KS_DB_PATH` and `KS_DB_HOST` overrides still take precedence over the YAML.
+Restart the adapter after changing its configuration.
+
+Firebird's service account needs read/write access to the database and search
+access to its parent directories. System service isolation can also restrict
+visible paths. Selecting a path in YAML does not bypass filesystem permissions
+or grant access to protected files.
+
+## Native client library
+
+`database.client_library` is empty by default, so the driver discovers the
+installed native client. The library must match the operating system and
+architecture of the **adapter process**, regardless of where the Firebird
+server runs: `fbclient.dll` on Windows, or `libfbclient.so` on Linux. A Linux
+adapter connecting to a Windows server still loads the Linux client library.
+
+Use `KS_FB_CLIENT` or `database.client_library` only if automatic discovery
+cannot find the correct client. That path belongs to the adapter machine;
+`database.path` belongs to the Firebird server. On Linux, register the client
+directory with the dynamic loader and run `sudo ldconfig`. On Windows, install
+the native Firebird client where the driver can discover it, or provide its
+absolute DLL path.
 
 ## macOS Firebird client
 

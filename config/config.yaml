@@ -10,20 +10,18 @@ server:
   reload: false
 
 database:
-  # Path to the Firebird database. A relative path is resolved against the
-  # project root (so `BAZAMS.FDB` works from any working directory). For remote
-  # servers set `host` below and keep the path as seen by the Firebird server.
-  path: ${KS_DB_PATH:-BAZAMS.FDB}
-  host: ${KS_DB_HOST:-}
+  # Set the absolute database path as seen by the Firebird server.
+  # Changing this path selects another file; the firebird account needs access.
+  path: ${KS_DB_PATH:-/home/igor/Work/BAZAMS.FDB}
+  host: ${KS_DB_HOST:-127.0.0.1}
   port: ${KS_DB_PORT:-3050}
   user: ${KS_DB_USER:-SYSDBA}
   password: ${KS_DB_PASSWORD:-masterkey}
   # Connection charset. WIN1250 matches the Polish data in BAZAMS.FDB.
   charset: ${KS_DB_CHARSET:-WIN1250}
-  # Path to the Firebird client library (fbclient.dll / libfbclient.so).
-  # Leave empty to let fdb search the system library path; set it only when the
-  # library is installed somewhere the driver cannot find on its own.
-  # client_library: ${KS_FB_CLIENT:-}
+  # Leave empty for native client discovery on Linux or Windows. Override only
+  # for a nonstandard install, using a path on the adapter machine, not the DB server.
+  client_library: ${KS_FB_CLIENT:-}
   pool_size: 5
   acquire_timeout: 10
   health_check: true
