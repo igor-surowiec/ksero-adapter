@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Mapping
 
 import pytest
@@ -232,6 +233,16 @@ class FakeService:
                 }
             ],
         }
+
+    def sync_cpc_from_machine(
+        self, id_maszyna: int, *, start_date: date, end_date: date,
+    ) -> dict[str, Any]:
+        self.calls.append({
+            "action": "sync_cpc_from_machine", "id_maszyna": id_maszyna,
+            "start_date": start_date, "end_date": end_date,
+        })
+        return {"id_cpc_table": 101, "id_maszyna": id_maszyna,
+                "licznik_mono_end": 1500}
 
     def fetch_database_machines(
         self,

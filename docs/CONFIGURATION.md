@@ -25,6 +25,11 @@ Firebird server. The remaining settings
 (`pool_size`, `check_path`, `schema_cache_ttl`, `decimal_as_string`,
 `cors_origins`, ...) are documented inline in the YAML file.
 
+`POST /cpc-settlement/machines/{id_maszyna}/sync` also requires
+`KS_ALLOW_WRITES=true`. It reads the secondary database and updates only the
+primary database by creating a settlement; the machine database remains
+read-only.
+
 
 `api.max_query_rows` / `KS_MAX_QUERY_ROWS` caps local Python diagnostic queries;
 it is not used by an HTTP query route.

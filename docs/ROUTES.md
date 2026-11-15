@@ -36,6 +36,7 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `GET` | `/cpc-settlement/{id_cpc_table}` | one CPC settlement |
 | `POST` | `/cpc-settlement` | create a CPC settlement |
 | `PATCH` | `/cpc-settlement/{id_cpc_table}` | update settlement readings, counts, charges and notes |
+| `POST` | `/cpc-settlement/machines/{id_maszyna}/sync` | create a new CPC settlement from matched machine readings and notes |
 | `DELETE` | `/cpc-settlement/{id_cpc_table}` | delete a settlement (`204`) |
 | `GET` | `/orders` | service orders (`ZLECENIE`) |
 | `GET` | `/invoices` | invoices (`FAKTURA`, header only) |
@@ -257,6 +258,59 @@ infer copy counts or calculate charges, VAT, or profit from meter readings.
 Existing database triggers recalculate machine/agreement aggregate costs,
 revenue and profit after CPC insertion, update and deletion, within the same
 transaction. Empty aggregates follow the database's existing NULL behavior.
+
+### Sync from the machine database
+
+`POST /cpc-settlement/machines/{id_maszyna}/sync` takes the original
+`ID_MASZYNA` in the URL, required `start_date` and `end_date` query parameters
+(`YYYY-MM-DD`), and no request body. It requires writes enabled and the
+configured API key. Both endpoints of the date range are inclusive; the source
+`DATA_LICZNIKA` must fall inside that range before any settlement fields are
+inserted. Missing or malformed query dates return `422`; a reversed range,
+missing/invalid source reading date, or out-of-range source date returns `400`
+and creates no settlement. These parameters filter source eligibility; the new
+settlement uses the database current year/month, like ordinary CPC creation.
+The tester exposes both as required inputs.
+
+It finds the original `MASZYNA` record, then uses the same
+query as `GET /machines-database` with exact `MODEL` and `ID_NR_SERYJNY`
+filters, using the original machine's `MODEL` and `SERIAL`. Machine IDs are
+independent across the databases and are never used for the source match.
+
+The endpoint creates a new primary `CPC` record with `ID_MASZYNA` from the
+URL and `ID_UMOWACPC` from the original machine's current agreement link.
+The machine must have a positive linked agreement ID; otherwise it returns
+`400`. The client is derived from that unique agreement in the insert
+transaction. Missing original machines, source matches or agreements return
+`404`. Ambiguous original machines, source matches or agreement IDs return
+`409`. No previous settlement is needed, and existing settlements are never
+selected or updated. Each successful POST creates another record.
+
+Missing secondary configuration or connectivity returns `503`. Invalid source
+readings return `400`. Failed requests roll back the primary transaction.
+
+| Source `MASZYNY` field | Destination `CPC` field |
+| --- | --- |
+| `LICZ_M_OSTATN_ROZL` | `LICZNIK_MONO_START` |
+| `LICZ_K_OSTATN_ROZL` | `LICZNIK_KOLOR_START` |
+| `LICZNIK_MONO` | `LICZNIK_MONO_END` |
+| `LICZNIK_KOLOR` | `LICZNIK_KOLOR_END` |
+| `LICZNIK_SKAN` | `LICZNIK_SKAN_END` |
+| `UWAGI` | `UWAGI` |
+
+Only non-null mapped values present in both schemas are copied. Zero meter
+readings are copied. Negative or noninteger readings and notes exceeding the
+CPC width are rejected. If no transferable values remain, the request returns
+`400`. Missing readings, blank notes, counts and charges follow ordinary CPC
+insert defaults; historical values are not carried forward. No charge or
+counter formula is inferred. The secondary database is only read. The primary
+machine lookup, agreement lookup and curated insert use one write transaction.
+The generated settlement is serialized before committing and returned with
+`201`; database triggers refresh parent totals as for normal CPC creation.
+
+```bash
+curl -X POST 'http://127.0.0.1:8000/api/v1/cpc-settlement/machines/42/sync?start_date=2026-11-01&end_date=2026-11-30'
+```
 
 ```http
 POST /api/v1/cpc-settlement

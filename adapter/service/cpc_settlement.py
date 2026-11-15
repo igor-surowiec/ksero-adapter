@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from ..errors import (
     ColumnNotFound, DatabaseUnavailable, InvalidRequest, RecordConflict, RecordNotFound,
 )
+from ..schema import TableInfo
 from ..sql import (
     build_delete,
     build_insert,
@@ -175,50 +176,15 @@ class CpcSettlementService(BaseDatabaseService):
                     "ROK", "MIESIAC"}
         if not required <= info.column_map.keys():
             raise InvalidRequest("CPC table lacks required settlement columns")
-        selected = [c for c in CPC_COLUMNS if c in info.column_map]
         agreement_info = self.schema.get(AGREEMENTS_TABLE)
         if not {"ID_UMOWACPC", "ID_KLIENT"} <= agreement_info.column_map.keys():
             raise InvalidRequest("Agreement table lacks client reference columns")
         with self.pool.write_session() as connection:
             cursor = connection.cursor()
             try:
-                cursor.execute(
-                    f"SELECT FIRST 2 "
-                    f"{quote_identifier(agreement_info.column_map['ID_KLIENT'])} "
-                    f"FROM {quote_identifier(agreement_info.name)} "
-                    f"WHERE {quote_identifier(agreement_info.column_map['ID_UMOWACPC'])} "
-                    "= ?", [prepared["ID_UMOWACPC"]],
+                return _insert_cpc_on_cursor(
+                    self, cursor, prepared, info, agreement_info
                 )
-                agreements = cursor.fetchall()
-                if not agreements:
-                    raise RecordNotFound(
-                        f"Agreement {prepared['ID_UMOWACPC']} not found"
-                    )
-                if len(agreements) > 1:
-                    raise RecordConflict(
-                        f"Multiple agreements have ID {prepared['ID_UMOWACPC']}"
-                    )
-                owner = agreements[0][0]
-                self._check_client_id(owner)
-                if "ID_KLIENT" in prepared and prepared["ID_KLIENT"] != owner:
-                    raise InvalidRequest("'id_klient' must match the agreement's client")
-                prepared = {"ID_KLIENT": owner, **prepared}
-                defaults = dict(CPC_INSERT_DEFAULTS)
-                if "ROK" not in prepared or "MIESIAC" not in prepared:
-                    cursor.execute("SELECT CURRENT_DATE FROM RDB$DATABASE")
-                    today = cursor.fetchone()
-                    if today is None or today[0] is None:
-                        raise DatabaseUnavailable(
-                            "Firebird did not return current date"
-                        )
-                    defaults.update(ROK=today[0].year, MIESIAC=today[0].month)
-                columns, params = _insert_plan(prepared, defaults, info.column_map)
-                statement = build_insert(info.name, columns, returning=selected)
-                cursor.execute(statement, params)
-                row = cursor.fetchone()
-                if row is None:
-                    raise DatabaseUnavailable("Firebird did not return the CPC record")
-                return self._serialize_row([c.lower() for c in selected], row)
             finally:
                 cursor.close()
 
@@ -282,3 +248,52 @@ class CpcSettlementService(BaseDatabaseService):
                     raise InvalidRequest(
                         f"'{column.lower()}' must be between 1 and {maximum}"
                     )
+
+
+def _insert_cpc_on_cursor(
+    service: BaseDatabaseService,
+    cursor: Any,
+    prepared: Mapping[str, Any],
+    info: TableInfo,
+    agreement_info: TableInfo,
+) -> dict[str, Any]:
+    """Insert a validated CPC payload on the caller's existing write transaction."""
+    service._require_writes()
+    selected = [c for c in CPC_COLUMNS if c in info.column_map]
+    cursor.execute(ensure_read_only(
+        f"SELECT FIRST 2 "
+        f"{quote_identifier(agreement_info.column_map['ID_KLIENT'])} "
+        f"FROM {quote_identifier(agreement_info.name)} "
+        f"WHERE {quote_identifier(agreement_info.column_map['ID_UMOWACPC'])} "
+        "= ?"), [prepared["ID_UMOWACPC"]],
+    )
+    agreements = cursor.fetchall()
+    if not agreements:
+        raise RecordNotFound(
+            f"Agreement {prepared['ID_UMOWACPC']} not found"
+        )
+    if len(agreements) > 1:
+        raise RecordConflict(
+            f"Multiple agreements have ID {prepared['ID_UMOWACPC']}"
+        )
+    owner = agreements[0][0]
+    service._check_client_id(owner)
+    if "ID_KLIENT" in prepared and prepared["ID_KLIENT"] != owner:
+        raise InvalidRequest("'id_klient' must match the agreement's client")
+    prepared = {"ID_KLIENT": owner, **prepared}
+    defaults = dict(CPC_INSERT_DEFAULTS)
+    if "ROK" not in prepared or "MIESIAC" not in prepared:
+        cursor.execute(ensure_read_only("SELECT CURRENT_DATE FROM RDB$DATABASE"))
+        today = cursor.fetchone()
+        if today is None or today[0] is None:
+            raise DatabaseUnavailable(
+                "Firebird did not return current date"
+            )
+        defaults.update(ROK=today[0].year, MIESIAC=today[0].month)
+    columns, params = _insert_plan(prepared, defaults, info.column_map)
+    statement = build_insert(info.name, columns, returning=selected)
+    cursor.execute(statement, params)
+    row = cursor.fetchone()
+    if row is None:
+        raise DatabaseUnavailable("Firebird did not return the CPC record")
+    return service._serialize_row([c.lower() for c in selected], row)

@@ -424,6 +424,14 @@ from `adapter.service` keep working.
   through the secondary service, with independent search and filtering.
 - `cpc_settlement.py` — settlement fields/defaults, filtering, record lookup,
   create/update/delete and period/key validation.
+- `cpc_sync.py` — create a settlement from the original machine ID. Reads the
+  unique original model/serial and linked agreement inside a primary write
+  transaction, then uses the secondary GET service's exact model/serial filters.
+  Requires an inclusive start/end date range containing source `DATA_LICZNIKA`.
+  Copies mapped readings and notes and uses the shared CPC insert helper for
+  agreement-derived ownership, database current period and legacy defaults.
+  No old settlement is selected or updated. Serialization precedes commit;
+  missing/ambiguous parents or invalid source data roll back the transaction.
 - `orders.py`, `invoices.py` — their curated columns/search fields and reads.
 - `base.py` — initialization/close, health/schema operations, generic row/query
   reads, paging, write execution, serialization, payload validation and the

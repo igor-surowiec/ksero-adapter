@@ -30,6 +30,11 @@ KS_TEST_DB_PATH=BAZAMS.fdb KS_TEST_MACHINES_DB_PATH=BAZA_CPC_FB5.FDB uv run --lo
 `KS_TEST_DB_USER`, `KS_TEST_DB_PASSWORD`, `KS_TEST_DB_CHARSET`, and
 `KS_TEST_DB_CLIENT` variables as the other live tests.
 
+The CPC synchronization integration test inserts synthetic records into both
+test databases and removes them on exit. It additionally requires
+`KS_TEST_MACHINES_DB_WRITABLE=1` as well as `KS_TEST_DB_WRITABLE=1` and both
+database paths. Use disposable copies when enabling both write flags.
+
 Dependency ranges live in `pyproject.toml`; `uv.lock` pins resolved versions
 across supported Python versions and platforms. Use `uv add PACKAGE` for
 runtime dependencies, `uv add --dev PACKAGE` for test dependencies, and

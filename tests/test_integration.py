@@ -13,6 +13,7 @@ by accident against a production database.
 from __future__ import annotations
 
 import dataclasses
+from datetime import date
 import json
 import os
 from typing import Any, Iterator
@@ -119,6 +120,120 @@ def test_secondary_machines_database_endpoint() -> None:
                 assert "licznik_mono" in page["machines"][0]
     finally:
         instance.close()
+
+
+@requires_writable
+@pytest.mark.skipif(
+    not (os.environ.get("KS_TEST_MACHINES_DB_PATH")
+         and os.environ.get("KS_TEST_MACHINES_DB_WRITABLE") == "1"),
+    reason="requires an explicitly writable secondary test database",
+)
+def test_sync_cpc_from_secondary_machine(write_service: DatabaseService) -> None:
+    from adapter.sql import build_delete, build_insert
+
+    secondary = DatabaseSettings(
+        path=resolve_database_path(os.environ["KS_TEST_MACHINES_DB_PATH"]),
+        user=os.environ.get("KS_TEST_DB_USER", "SYSDBA"),
+        password=os.environ.get("KS_TEST_DB_PASSWORD", "masterkey"),
+        charset="WIN1250",
+        client_library=os.environ.get("KS_TEST_DB_CLIENT") or None,
+    )
+    instance = DatabaseService(dataclasses.replace(
+        write_service.settings, machines_database=secondary,
+    ))
+    source_service = instance._machines_database_service
+    assert source_service is not None
+    owner = machine = agreement = settlement = created = None
+    source_key = None
+    try:
+        source_key_candidate = source_service.run_query(
+            'SELECT COALESCE(MAX("ID_TBL_MASZYNY"), 0) + 1 AS N FROM "MASZYNY"'
+        )["rows"][0]["N"]
+        source = {
+            "ID_TBL_MASZYNY": source_key_candidate,
+            "ID_MASZYNA": source_key_candidate, "ID_KLIENT": 0,
+            "MODEL": f"SYNC TEST MODEL {os.getpid()}",
+            "ID_NR_SERYJNY": f"SYNC-TEST-{os.getpid()}",
+            "LICZ_M_OSTATN_ROZL": 1000, "LICZ_K_OSTATN_ROZL": 100,
+            "LICZNIK_MONO": 1500, "LICZNIK_KOLOR": 250, "LICZNIK_SKAN": 75,
+            "DATA_LICZNIKA": date(2026, 11, 15),
+            "UWAGI": "synchronization test",
+        }
+        with source_service.pool.write_session() as connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute(build_insert(
+                    "MASZYNY", list(source), returning=["ID_TBL_MASZYNY"],
+                ), list(source.values()))
+                source_key = cursor.fetchone()[0]
+            finally:
+                cursor.close()
+        owner = instance.create_client({"nazwa": "KS CPC SYNC TEST"})
+        machine = instance.create_machine({
+            "id_klient": owner["id_klient"], "marka": "KS TEST",
+            "model": source["MODEL"], "serial": source["ID_NR_SERYJNY"],
+        })
+        agreement = instance.create_agreement({
+            "id_klient": owner["id_klient"],
+            "machines": [machine["id_maszyna"]],
+        })
+        settlement = instance.create_cpc({
+            "id_maszyna": machine["id_maszyna"],
+            "id_umowacpc": agreement["id_umowacpc"], "kopie_mono": 3,
+            "licznik_mono_start": 2, "licznik_mono_end": 5, "oplata_suma": 7,
+        })
+        with TestClient(create_app(instance.settings, service=instance)) as client:
+            rejected = client.post(
+                f"/api/v1/cpc-settlement/machines/{machine['id_maszyna']}/sync",
+                params={"start_date": "2026-12-01", "end_date": "2026-12-31"},
+            )
+            assert rejected.status_code == 400
+            assert instance.get_cpc(settlement["id_cpc_table"]) == settlement
+            response = client.post(
+                f"/api/v1/cpc-settlement/machines/{machine['id_maszyna']}/sync",
+                params={"start_date": "2026-11-01", "end_date": "2026-11-30"}
+            )
+        assert response.status_code == 201
+        synced = created = response.json()
+        assert synced["id_cpc_table"] != settlement["id_cpc_table"]
+        assert synced["licznik_mono_start"] == 1000
+        assert synced["licznik_kolor_start"] == 100
+        assert synced["licznik_mono_end"] == 1500
+        assert synced["licznik_kolor_end"] == 250
+        assert synced["licznik_skan_end"] == 75
+        assert synced["uwagi"] == "synchronization test"
+        for preserved in ("id_klient", "id_maszyna", "id_umowacpc", "rok",
+                          "miesiac"):
+            assert synced[preserved] == settlement[preserved]
+        assert synced["kopie_mono"] != 3
+        assert synced["oplata_suma"] == 0
+        assert instance.get_cpc(settlement["id_cpc_table"]) == settlement
+        assert instance.get_cpc(synced["id_cpc_table"]) == synced
+    finally:
+        try:
+            if created is not None:
+                instance.delete_cpc(created["id_cpc_table"])
+            if settlement is not None:
+                instance.delete_cpc(settlement["id_cpc_table"])
+            if machine is not None:
+                delete_machine(instance, machine["id_maszyna_table"])
+            if agreement is not None:
+                delete_agreement(instance, agreement["id_umowacpc_table"])
+            if owner is not None:
+                delete_client(instance, owner["id_klient_table"])
+        finally:
+            try:
+                if source_key is not None:
+                    with source_service.pool.write_session() as connection:
+                        cursor = connection.cursor()
+                        try:
+                            cursor.execute(build_delete(
+                                "MASZYNY", key="ID_TBL_MASZYNY",
+                            ), [source_key])
+                        finally:
+                            cursor.close()
+            finally:
+                instance.close()
 
 
 def test_schema_lists_user_tables(service: DatabaseService) -> None:

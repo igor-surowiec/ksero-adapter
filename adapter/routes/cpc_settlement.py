@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
@@ -87,6 +88,36 @@ def create_router(settings: AppSettings) -> APIRouter:
     ) -> dict[str, Any]:
         return service.update_cpc(
             id_cpc_table, payload.model_dump(exclude_unset=True)
+        )
+
+    @router.post(
+        "/cpc-settlement/machines/{id_maszyna}/sync",
+        response_model=Cpc, status_code=status.HTTP_201_CREATED, tags=["data"],
+        summary="Create a machine's CPC settlement from the machines database",
+        description=(
+            "Finds the original machine by ID_MASZYNA, then matches its MODEL "
+            "and SERIAL against MODEL and ID_NR_SERYJNY in machines_database. "
+            "Copies current mono/colour/scan readings as end readings, last "
+            "settled mono/colour readings as start readings, and UWAGI. "
+            "Requires start_date and end_date (YYYY-MM-DD); DATA_LICZNIKA "
+            "must fall within the inclusive range. A reversed range, missing "
+            "source reading date or out-of-range date returns 400. "
+            "Creates a new settlement using the machine's linked agreement; "
+            "its client is derived from that agreement. Existing settlements "
+            "are unchanged. Missing source/parent records return 404 and "
+            "ambiguous identities return 409. Missing readings and notes, "
+            "period, counts and charges use normal CPC creation defaults. "
+            "Requires api.allow_writes and the configured API key."
+        ),
+    )
+    def sync_cpc_from_machine(
+        id_maszyna: int = Path(ge=1),
+        start_date: date = Query(description="Inclusive reading start date (YYYY-MM-DD)"),
+        end_date: date = Query(description="Inclusive reading end date (YYYY-MM-DD)"),
+        service: DatabaseService = Depends(get_service),
+    ) -> dict[str, Any]:
+        return service.sync_cpc_from_machine(
+            id_maszyna, start_date=start_date, end_date=end_date
         )
 
 

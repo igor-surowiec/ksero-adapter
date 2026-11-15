@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from ..config import AppSettings
 from ..pool import ConnectionPool
-from .machines_database import MachinesDatabaseService
+from .cpc_sync import CpcSyncService
 from .base import _insert_plan as _insert_plan
 from .clients import (
     ClientsService,
@@ -67,7 +67,7 @@ class DatabaseService(
     CpcSettlementService,
     OrdersService,
     InvoicesService,
-    MachinesDatabaseService,
+    CpcSyncService,
 ):
     """Resource operations with isolated primary and machine database state."""
 
