@@ -17,7 +17,7 @@ def create_router(settings: AppSettings) -> APIRouter:
     router = APIRouter()
 
     @router.get(
-        "/machines-database/maszyny",
+        "/machines-database",
         response_model=DatabaseMachinePage,
         tags=["MACHINES_DATABASE"],
         summary="List MASZYNY from the machines database",

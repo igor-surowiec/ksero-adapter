@@ -204,7 +204,7 @@ class MachinesService(BaseDatabaseService):
         """Insert a machine into ``MASZYNA`` and return the stored row.
 
         ``values`` is keyed by the lower-cased column names of the curated
-        projection (``{"id_klient": 7, "marka": "KONICA"}``); only the fields of
+        projection; manufacturer, model and serial must be nonblank. Only fields of
         :data:`MACHINE_WRITE_COLUMNS` are accepted and only the ones the caller
         supplies override :data:`MACHINE_INSERT_DEFAULTS`, the legacy row profile.
         ``ID_KLIENT`` must identify an existing client. The
@@ -223,8 +223,9 @@ class MachinesService(BaseDatabaseService):
         )
         owner = prepared.get("ID_KLIENT")
         self._check_client_id(owner)
-        if not isinstance(prepared.get("MARKA"), str) or not prepared["MARKA"]:
-            raise InvalidRequest("'marka' must be a nonblank string")
+        for column in ("MARKA", "MODEL", "SERIAL"):
+            if not isinstance(prepared.get(column), str) or not prepared[column]:
+                raise InvalidRequest(f"'{column.lower()}' must be a nonblank string")
 
         info = self.schema.get(MACHINES_TABLE)
         if "ID_KLIENT" not in info.column_map:

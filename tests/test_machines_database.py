@@ -23,7 +23,7 @@ from adapter.sql import MAX_SEARCH_COLUMNS
 from .conftest import FakeService, make_settings
 from .test_service import _Pool, _StubSchema
 
-URL = "/api/v1/machines-database/maszyny"
+URL = "/api/v1/machines-database"
 
 
 def test_secondary_database_http_contract() -> None:

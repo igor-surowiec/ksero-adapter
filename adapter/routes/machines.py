@@ -57,7 +57,8 @@ def create_router(settings: AppSettings) -> APIRouter:
         summary="Create a machine for a client",
         description=(
             "Creates a machine with id_klient from the URL. The body requires "
-            "a nonblank marka (manufacturer); other machine details are optional. "
+            "nonblank marka (manufacturer), model and serial; "
+            "other machine details are optional. "
             "Legacy defaults fill omitted "
             "fields (branch/company/VAT/sync flags 0, grupa Druk, aktywna TAK, "
             "kolorowa NIE, rodzaj_us Platne and empty text). "

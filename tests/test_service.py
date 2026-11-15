@@ -1467,16 +1467,16 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
     import datetime as dt
     from decimal import Decimal
 
-    row = (9, 84, 7, "KONICA", "", dt.date(2026, 1, 2), Decimal("120.5000"))
+    row = (9, 84, 7, "KONICA", "SN-TEST", dt.date(2026, 1, 2), Decimal("120.5000"))
     pool = _Pool([(MASZYNA_RETURNING, [row])])
     pool.responses.insert(0, (None, [(7,)]))
     service = make_projection_service(pool, KLIENT, MASZYNA_WRITABLE, allow_writes=True)
 
     created = service.create_machine(
-        {
+        {"model": "TEST MODEL",
             "id_klient": 7,
             "marka": "  KONICA  ",
-            "serial": "   ",
+            "serial": "  SN-TEST  ",
             "instalacja": dt.date(2026, 1, 2),
             "oplata": Decimal("120.5"),
         }
@@ -1484,11 +1484,11 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
 
     assert pool.executed[1:] == [
         (
-            'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "INSTALACJA", '
-            '"OPLATA", "SERIAL") '
+            'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "SERIAL", '
+            '"INSTALACJA", "OPLATA") '
             'VALUES (?, ?, ?, ?, ?) RETURNING "ID_MASZYNA_TABLE", "ID_MASZYNA", '
             '"ID_KLIENT", "MARKA", "SERIAL", "INSTALACJA", "OPLATA"',
-            [7, "KONICA", dt.date(2026, 1, 2), Decimal("120.5"), ""],
+            [7, "KONICA", "SN-TEST", dt.date(2026, 1, 2), Decimal("120.5")],
         )
     ]
     assert pool.committed == 1
@@ -1498,7 +1498,7 @@ def test_create_machine_inserts_the_supplied_columns() -> None:
         "id_maszyna": 84,
         "id_klient": 7,
         "marka": "KONICA",
-        "serial": "",
+        "serial": "SN-TEST",
         "instalacja": "2026-01-02",
         "oplata": 120.5,
     }
@@ -1510,7 +1510,12 @@ def test_create_machine_accepts_upper_cased_field_names() -> None:
     pool.responses.insert(0, (None, [(7,)]))
     service = make_projection_service(pool, KLIENT, MASZYNA_WRITABLE, allow_writes=True)
 
-    service.create_machine({"ID_KLIENT": 7, "Marka": "KONICA"})
+    service.create_machine({
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "ID_KLIENT": 7,
+        "Marka": "KONICA",
+    })
 
     assert pool.executed[1][0] == (
         'INSERT INTO "MASZYNA" ("ID_KLIENT", "MARKA", "SERIAL") '
@@ -1518,7 +1523,7 @@ def test_create_machine_accepts_upper_cased_field_names() -> None:
         '"ID_MASZYNA_TABLE", "ID_MASZYNA", "ID_KLIENT", "MARKA", "SERIAL", '
         '"INSTALACJA", "OPLATA"'
     )
-    assert pool.executed[1][1] == [7, "KONICA", ""]
+    assert pool.executed[1][1] == [7, "KONICA", "SN-TEST"]
 
 
 def test_create_machine_validates_a_supplied_owner() -> None:
@@ -1545,11 +1550,17 @@ def test_create_machine_rejects_unknown_fields() -> None:
     service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_machine({
+        service.create_machine({"model": "TEST MODEL", "serial": "SN-TEST",
             "marka": "KS TEST", "id_klient": 7, "serialnumber": "SN-1",
         })
     with pytest.raises(InvalidRequest):
-        service.create_machine({"marka": "KS TEST", "id_klient": 7, "koszty": 10.0})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+            "koszty": 10.0,
+        })
 
     assert pool.executed == []
 
@@ -1559,7 +1570,12 @@ def test_create_machine_rejects_over_long_text() -> None:
     service = make_projection_service(pool, MASZYNA_WRITABLE, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_machine({"id_klient": 7, "marka": "x" * 101})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "id_klient": 7,
+            "marka": "x" * 101,
+        })
 
     assert pool.executed == []
 
@@ -1569,7 +1585,12 @@ def test_create_machine_is_rejected_when_writes_are_disabled() -> None:
     service = make_projection_service(pool, MASZYNA_WRITABLE)
 
     with pytest.raises(WritesDisabled):
-        service.create_machine({"marka": "KS TEST", "id_klient": 7})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+        })
 
     assert pool.executed == []
     assert pool.committed == 0
@@ -1590,7 +1611,12 @@ def test_create_machine_skips_columns_missing_from_the_schema() -> None:
     pool.responses.insert(0, (None, [(7,)]))
     service = make_projection_service(pool, KLIENT, narrow, allow_writes=True)
 
-    assert service.create_machine({"id_klient": 7, "marka": "KONICA"}) == {
+    assert service.create_machine({
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "id_klient": 7,
+        "marka": "KONICA",
+    }) == {
         "id_maszyna_table": 11,
         "id_klient": 7,
     }
@@ -1614,7 +1640,12 @@ def test_create_machine_requires_the_owner_column() -> None:
     service = make_projection_service(pool, broken, allow_writes=True)
 
     with pytest.raises(InvalidRequest):
-        service.create_machine({"marka": "KS TEST", "id_klient": 7})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+        })
 
     assert pool.executed == []
 
@@ -1625,7 +1656,12 @@ def test_create_machine_rolls_back_when_the_insert_fails() -> None:
     service = make_projection_service(pool, KLIENT, MASZYNA_WRITABLE, allow_writes=True)
 
     with pytest.raises(IndexError):
-        service.create_machine({"marka": "KS TEST", "id_klient": 7})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+        })
 
     assert pool.committed == 0
     assert pool.rolled_back == 1
@@ -1811,7 +1847,12 @@ def test_create_machine_checks_client_before_inserting(
     pool = _Pool([(None, matches)])
     service = make_projection_service(pool, MASZYNA_WRITABLE, KLIENT, allow_writes=True)
     with pytest.raises(error):
-        service.create_machine({"marka": "KS TEST", "id_klient": 7})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+        })
     assert pool.executed == [(
         'SELECT FIRST 2 "ID_KLIENT" FROM "KLIENT" WHERE "ID_KLIENT" = ?', [7],
     )]
@@ -2528,7 +2569,7 @@ def test_create_machine_uses_full_legacy_profile_and_caller_overrides() -> None:
     pool = _Pool([(None, [row])])
     pool.responses.insert(0, (None, [(7,)]))
     service = make_projection_service(pool, KLIENT, table, allow_writes=True)
-    service.create_machine({
+    service.create_machine({"model": "TEST MODEL", "serial": "SN-TEST",
         "id_klient": 7, "marka": "KONICA", "id_oddzial": 1, "aktywna": "NIE",
         "kolorowa": "TAK", "rodzaj_us": "CPC",
     })
@@ -2536,6 +2577,7 @@ def test_create_machine_uses_full_legacy_profile_and_caller_overrides() -> None:
     names = re.findall(r'"([^"]+)"', sql.split("VALUES")[0])[1:]
     inserted = dict(zip(names, params))
     assert inserted == {**MACHINE_INSERT_DEFAULTS, "ID_KLIENT": 7, "MARKA": "KONICA",
+        "MODEL": "TEST MODEL", "SERIAL": "SN-TEST",
         "ID_ODDZIAL": 1, "AKTYWNA": "NIE", "KOLOROWA": "TAK", "RODZAJ_US": "CPC"}
     assert inserted["SYNWP"] == 0
     assert inserted["MKOD"] == ""
@@ -2615,8 +2657,40 @@ def test_create_machine_service_requires_manufacturer(fields: Any) -> None:
     pool = _Pool([])
     service = make_projection_service(pool, MASZYNA_WRITABLE, KLIENT, allow_writes=True)
     with pytest.raises(InvalidRequest, match="marka"):
-        service.create_machine({"id_klient": 7, **fields})
+        service.create_machine({
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "id_klient": 7,
+            **fields,
+        })
     assert pool.executed == []
+
+
+@pytest.mark.parametrize("field", ["marka", "model", "serial"])
+@pytest.mark.parametrize("value", [None, "", "  ", 123])
+def test_create_machine_service_rejects_invalid_required_identity(
+    field: str, value: Any,
+) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, KLIENT, allow_writes=True)
+    payload = {"id_klient": 7, "marka": "TEST", "model": "MODEL", "serial": "SN"}
+    payload[field] = value
+    with pytest.raises(InvalidRequest, match=field):
+        service.create_machine(payload)
+    assert pool.executed == []
+    assert pool.committed == 0
+
+
+@pytest.mark.parametrize("field", ["marka", "model", "serial"])
+def test_create_machine_service_rejects_missing_required_identity(field: str) -> None:
+    pool = _Pool([])
+    service = make_projection_service(pool, MASZYNA_WRITABLE, KLIENT, allow_writes=True)
+    payload = {"id_klient": 7, "marka": "TEST", "model": "MODEL", "serial": "SN"}
+    del payload[field]
+    with pytest.raises(InvalidRequest, match=field):
+        service.create_machine(payload)
+    assert pool.executed == []
+    assert pool.committed == 0
 
 
 

@@ -28,8 +28,8 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `PATCH` | `/cpc-agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `DELETE` | `/cpc-agreements/{id_umowacpc}` | delete an unreferenced agreement (`204`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
-| `GET` | `/machines-database/maszyny` | machine records (`MASZYNY`) from the separate `machines_database` |
-| `POST` | `/machines/{id_klient}` | create a machine; client ID from the URL and nonblank `marka` required |
+| `GET` | `/machines-database` | machine records (`MASZYNY`) from the separate `machines_database` |
+| `POST` | `/machines/{id_klient}` | create a machine; client ID from the URL and nonblank `marka`, `model`, `serial` required |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
 | `DELETE` | `/machines/{id_maszyna}` | delete a machine and trigger-managed service orders (`204`) |
 | `GET` | `/cpc-settlement` | paginated CPC settlement records, search and JSON filters |
@@ -60,7 +60,7 @@ as the read routes and answer `403` unless `api.allow_writes` /
 
 ## Machine-data database
 
-`GET /machines-database/maszyny` reads `MASZYNY` from the configured
+`GET /machines-database` reads `MASZYNY` from the configured
 `machines_database`, independently of `/machines` and its primary `MASZYNA`
 table. The tester groups it under **MACHINES_DATABASE**. It requires the same
 API key as other resource routes and supports `limit`, `offset`, `search`, and
@@ -77,7 +77,7 @@ group, inventory number and technician; filters can use any catalog column.
 There are no write routes for this database.
 
 ```bash
-curl 'http://127.0.0.1:8000/api/v1/machines-database/maszyny?limit=10'
+curl 'http://127.0.0.1:8000/api/v1/machines-database?limit=10'
 ```
 
 ## Clients
@@ -279,10 +279,11 @@ projection (`marka`, `model`, `serial`, `instalacja`, `oplata`, ...) and inserts
 one `MASZYNA` row. The URL `id_klient` must be a positive integer identifying
 an existing `KLIENT.ID_KLIENT`. Invalid path IDs return `422`; a missing
 client returns `404` and an ambiguous client ID returns `409`. No machine is
-inserted on failure. The JSON body must contain a nonblank `marka`
-(manufacturer, at most 100 characters). Missing, null, empty and whitespace-only
-manufacturer values return `422`. Surrounding whitespace is trimmed. Other
-machine details are optional.
+inserted on failure. The JSON body must contain nonblank `marka` (manufacturer),
+`model`, and `serial`, each at most 100 characters. Missing, null, empty and
+whitespace-only values return `422`. Surrounding whitespace is trimmed. Other
+machine details are optional. These creation requirements do not apply to
+partial updates through `PATCH /machines/{id_maszyna}`.
 `INS_MASZYNA_RECORD` assigns `ID_MASZYNA_TABLE` and `ID_MASZYNA`.
 `MACHINE_INSERT_DEFAULTS` reproduces the native row profile: branch/company/VAT
 and sync flags `0`, printer group `grupa = "Druk"`, `aktywna = "TAK"`, `kolorowa
@@ -297,7 +298,8 @@ Application-maintained fields (`licznik_total`, `last_m`, `last_w`, `next_w`,
 `koszty`, `przychody`, `wynik`, `synwp`) cannot be supplied directly.
 
 `POST /machines/{id_klient}` creates a machine with its owner taken from the
-URL, with required `marka` in the JSON body. A body `id_klient` may be
+URL, with required `marka`, `model`, and `serial` in the JSON body. A body
+`id_klient` may be
 omitted, null, or match the URL; a conflicting value returns `400`. URL client
 ID must be positive and identify an existing client; `0` returns `422` and
 a missing client returns `404`. The response is the stored machine with

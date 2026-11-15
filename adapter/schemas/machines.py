@@ -80,7 +80,7 @@ class MachinePage(BaseModel):
 
 
 class MachineCreate(BaseModel):
-    """Machine details for ``POST /machines/{id_klient}``; marka is required.
+    """Machine details with required manufacturer, model and serial number.
 
     The required positive client ID comes from the URL. An optional body owner
     must match it. The ``INS_MASZYNA_RECORD`` trigger assigns
@@ -112,10 +112,10 @@ class MachineCreate(BaseModel):
         max_length=MACHINE_TEXT_LENGTHS["MARKA"],
         description="Required manufacturer; surrounding whitespace is trimmed",
     )
-    model: str | None = Field(
-        default=None,
+    model: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        min_length=1,
         max_length=MACHINE_TEXT_LENGTHS["MODEL"],
-        description="Model name",
+        description="Required model name; surrounding whitespace is trimmed",
     )
     grupa: str | None = Field(
         default=None,
@@ -132,10 +132,10 @@ class MachineCreate(BaseModel):
         max_length=MACHINE_TEXT_LENGTHS["RODZAJ_US"],
         description="Billing model, e.g. 'Płatne'",
     )
-    serial: str | None = Field(
-        default=None,
+    serial: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        min_length=1,
         max_length=MACHINE_TEXT_LENGTHS["SERIAL"],
-        description="Serial number",
+        description="Required serial number; surrounding whitespace is trimmed",
     )
     serial2: str | None = Field(
         default=None,
@@ -217,4 +217,14 @@ class MachineUpdate(MachineCreate):
         default=None,
         max_length=MACHINE_TEXT_LENGTHS["MARKA"],
         description="Manufacturer",
+    )
+    model: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["MODEL"],
+        description="Model name",
+    )
+    serial: str | None = Field(
+        default=None,
+        max_length=MACHINE_TEXT_LENGTHS["SERIAL"],
+        description="Serial number",
     )

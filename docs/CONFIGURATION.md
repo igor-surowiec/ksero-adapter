@@ -107,7 +107,7 @@ With an empty host, relative paths resolve against the project root. To connect
 to a server later, set `KS_MACHINES_DB_HOST` and use a path or alias visible to
 that server in `KS_MACHINES_DB_PATH`.
 
-`GET /machines-database/maszyny` uses this connection, with its own pool and
+`GET /machines-database` uses this connection, with its own pool and
 schema cache. Connections open lazily on request and both pools close on
 application shutdown. This database is read-only even when primary writes are
 enabled. Existing routes, `/health`, and CLI `--check` continue using the

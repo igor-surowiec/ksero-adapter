@@ -136,11 +136,11 @@ Variations:
   nothing is queued for synchronisation.
 
 `POST /machines/{id_klient}` is the only machine-create route. It accepts
-`MachineCreate` details with required nonblank `marka`, rejects a conflicting
-body owner, and injects
-the positive URL owner before calling the same `create_machine()` service.
-The manufacturer is trimmed and checked in both the wire model and service;
-updates override it as optional and retain clearing behavior. Creation shares
+`MachineCreate` details with required nonblank `marka`, `model` and `serial`,
+rejects a conflicting body owner, and injects the positive URL owner before
+calling the same `create_machine()` service. Manufacturer, model and serial
+are trimmed and checked in both the wire model and service; updates override
+them as optional and retain clearing behavior. Creation shares
 the write gate, API key check, native defaults and `201` response.
 The collection `/machines` route supports GET only.
 
@@ -475,7 +475,7 @@ names, field constraints, response shapes and OpenAPI schemas are unchanged.
 ### Repository files
 
 The optional `AppSettings.machines_database` stores independent
-`DatabaseSettings` for `GET /machines-database/maszyny`. Its separate service
+`DatabaseSettings` for `GET /machines-database`. Its separate service
 uses its own pool and schema cache; an omitted configuration returns `503` on
 that endpoint. Health checks and CLI diagnostics still use the primary database.
 

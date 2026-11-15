@@ -525,7 +525,12 @@ def test_create_machine_returns_the_stored_row(
 ) -> None:
     response = client.post(
         "/api/v1/machines/7",
-        json={"id_klient": 7, "marka": "KONICA", "serial": "SN-0001"},
+        json={
+            "model": "TEST MODEL",
+            "id_klient": 7,
+            "marka": "KONICA",
+            "serial": "SN-0001",
+        },
     )
 
     assert response.status_code == 201
@@ -536,7 +541,12 @@ def test_create_machine_returns_the_stored_row(
     assert body["marka"] == "KONICA"
     assert fake_service.calls[-1] == {
         "action": "create_machine",
-        "values": {"id_klient": 7, "marka": "KONICA", "serial": "SN-0001"},
+        "values": {
+            "model": "TEST MODEL",
+            "id_klient": 7,
+            "marka": "KONICA",
+            "serial": "SN-0001",
+        },
     }
 
 
@@ -547,13 +557,19 @@ def test_create_machine_sends_only_the_supplied_fields(
 
     response = client.post(
         "/api/v1/machines/7",
-        json={"id_klient": 7, "marka": "KONICA", "serial": None, "uwagi": None},
+        json={"model": "TEST MODEL", "id_klient": 7, "marka": "KONICA",
+              "serial": "SN-TEST", "uwagi": None},
     )
 
     assert response.status_code == 201
     assert fake_service.calls[-1] == {
         "action": "create_machine",
-        "values": {"id_klient": 7, "marka": "KONICA"},
+        "values": {
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "id_klient": 7,
+            "marka": "KONICA",
+        },
     }
 
 
@@ -572,13 +588,23 @@ def test_create_machine_rejects_invalid_owner(client: TestClient) -> None:
     assert (
         client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": -1},
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": -1,
+            },
         ).status_code == 422
     )
     assert (
         client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": "x"},
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": "x",
+            },
         ).status_code == 422
     )
 
@@ -588,7 +614,13 @@ def test_create_machine_rejects_unknown_fields(client: TestClient) -> None:
 
     response = client.post(
         "/api/v1/machines/7",
-        json={"marka": "KS TEST", "id_klient": 7, "markaa": "KONICA"}
+        json={
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 7,
+            "markaa": "KONICA",
+        }
     )
 
     assert response.status_code == 422
@@ -600,21 +632,38 @@ def test_create_machine_rejects_over_long_text_and_bad_dates(
 ) -> None:
     assert (
         client.post(
-            "/api/v1/machines/7", json={"id_klient": 7, "marka": "x" * 101}
+            "/api/v1/machines/7", json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "id_klient": 7,
+                "marka": "x" * 101,
+            }
         ).status_code
         == 422
     )
     assert (
         client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": 7, "aktywna": "TAK!"}
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": 7,
+                "aktywna": "TAK!",
+            }
         ).status_code
         == 422
     )
     assert (
         client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": 7, "instalacja": "not-a-date"}
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": 7,
+                "instalacja": "not-a-date",
+            }
         ).status_code
         == 422
     )
@@ -627,12 +676,22 @@ def test_create_machine_requires_api_key() -> None:
         assert (
             client.post(
                 "/api/v1/machines/7",
-                json={"marka": "KS TEST", "id_klient": 7},
+                json={
+                    "model": "TEST MODEL",
+                    "serial": "SN-TEST",
+                    "marka": "KS TEST",
+                    "id_klient": 7,
+                },
             ).status_code == 401
         )
         allowed = client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": 7},
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": 7,
+            },
             headers={"X-API-Key": "secret"},
         )
         assert allowed.status_code == 201
@@ -647,7 +706,12 @@ def test_create_machine_reports_disabled_writes_as_403() -> None:
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "id_klient": 7},
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "id_klient": 7,
+            },
         )
 
     assert response.status_code == 403
@@ -1102,8 +1166,17 @@ def test_create_cpc_accepts_optional_period(
 
 
 @pytest.mark.parametrize("payload", [
-    {"marka": "KONICA"}, {"marka": "KONICA", "id_klient": 7},
-    {"marka": "KONICA", "id_klient": None},
+    {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "KONICA",
+    }, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "KONICA",
+        "id_klient": 7,
+    },
+    {"model": "TEST MODEL", "serial": "SN-TEST", "marka": "KONICA", "id_klient": None},
 ])
 def test_create_machine_with_client_in_path(
     client: TestClient, fake_service: FakeService, payload: Any,
@@ -1121,7 +1194,12 @@ def test_create_machine_with_client_in_path(
 def test_machine_client_path_rejects_conflicting_body(client: TestClient) -> None:
     response = client.post(
         "/api/v1/machines/7",
-        json={"marka": "KS TEST", "id_klient": 8},
+        json={
+            "model": "TEST MODEL",
+            "serial": "SN-TEST",
+            "marka": "KS TEST",
+            "id_klient": 8,
+        },
     )
     assert response.status_code == 400
     assert response.json()["error"] == "InvalidRequest"
@@ -1134,7 +1212,12 @@ def test_machine_client_path_validates_id_and_body(client: TestClient) -> None:
     assert (
         client.post(
             "/api/v1/machines/7",
-            json={"marka": "KS TEST", "markaa": "X"},
+            json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+                "markaa": "X",
+            },
         ).status_code == 422
     )
 
@@ -1144,7 +1227,11 @@ def test_machine_client_path_requires_api_key() -> None:
     with TestClient(app) as client:
         assert client.post("/api/v1/machines/7").status_code == 401
         assert client.post(
-            "/api/v1/machines/7", json={"marka": "KS TEST"},
+            "/api/v1/machines/7", json={
+                "model": "TEST MODEL",
+                "serial": "SN-TEST",
+                "marka": "KS TEST",
+            },
             headers={"X-API-Key": "secret"}
         ).status_code == 201
 
@@ -1158,7 +1245,7 @@ def test_machine_client_path_respects_write_gate() -> None:
         assert (
             client.post(
                 "/api/v1/machines/7",
-                json={"marka": "KS TEST"},
+                json={"model": "TEST MODEL", "serial": "SN-TEST", "marka": "KS TEST"},
             ).status_code == 403
         )
 
@@ -1248,7 +1335,11 @@ def test_delete_agreement_rejects_invalid_path(client: TestClient, key: str) -> 
 
 
 @pytest.mark.parametrize("path, body", [
-    ("/api/v1/machines/99", {"marka": "KS TEST"}),
+    ("/api/v1/machines/99", {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "KS TEST",
+    }),
 ])
 def test_create_machine_reports_missing_client(path: str, body: Any) -> None:
     class MissingClientService(FakeService):
@@ -1264,8 +1355,32 @@ def test_create_machine_reports_missing_client(path: str, body: Any) -> None:
 
 
 @pytest.mark.parametrize("payload", [
-    None, {}, {"marka": None}, {"marka": ""}, {"marka": "   "},
-    {"marka": "\t\n"}, {"marka": 123}, {"marka": "x" * 101},
+    None, {}, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": None,
+    }, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "",
+    }, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "   ",
+    },
+    {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "\t\n",
+    }, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": 123,
+    }, {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "x" * 101,
+    },
 ])
 def test_create_machine_requires_nonblank_manufacturer(
     client: TestClient, fake_service: FakeService, payload: Any,
@@ -1278,15 +1393,73 @@ def test_create_machine_requires_nonblank_manufacturer(
 def test_create_machine_trims_manufacturer(
     client: TestClient, fake_service: FakeService,
 ) -> None:
-    response = client.post("/api/v1/machines/7", json={"marka": "  KONICA  "})
+    response = client.post("/api/v1/machines/7", json={
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "marka": "  KONICA  ",
+    })
     assert response.status_code == 201
-    assert fake_service.calls[-1]["values"] == {"id_klient": 7, "marka": "KONICA"}
+    assert fake_service.calls[-1]["values"] == {
+        "model": "TEST MODEL",
+        "serial": "SN-TEST",
+        "id_klient": 7,
+        "marka": "KONICA",
+    }
 
 
 def test_machine_manufacturer_required_only_for_creation(client: TestClient) -> None:
     schemas = client.get("/openapi.json").json()["components"]["schemas"]
-    assert "marka" in schemas["MachineCreate"]["required"]
-    assert "marka" not in schemas["MachineUpdate"].get("required", [])
+    assert {"marka", "model", "serial"} <= set(schemas["MachineCreate"]["required"])
+    assert not {"marka", "model", "serial"} & set(
+        schemas["MachineUpdate"].get("required", [])
+    )
+
+
+@pytest.mark.parametrize("field", ["marka", "model", "serial"])
+@pytest.mark.parametrize("value", [None, "", "   ", "\t\n", 123, "x" * 101])
+def test_create_machine_rejects_invalid_required_identity(
+    client: TestClient, fake_service: FakeService, field: str, value: Any,
+) -> None:
+    payload = {"marka": "TEST", "model": "TEST MODEL", "serial": "SN-TEST"}
+    payload[field] = value
+    response = client.post("/api/v1/machines/7", json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", field]
+    assert fake_service.calls == []
+
+
+@pytest.mark.parametrize("field", ["marka", "model", "serial"])
+def test_create_machine_rejects_missing_identity(
+    client: TestClient, fake_service: FakeService, field: str,
+) -> None:
+    payload = {"marka": "TEST", "model": "TEST MODEL", "serial": "SN-TEST"}
+    del payload[field]
+    response = client.post("/api/v1/machines/7", json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", field]
+    assert fake_service.calls == []
+
+
+def test_create_machine_trims_required_identity(
+    client: TestClient, fake_service: FakeService,
+) -> None:
+    response = client.post("/api/v1/machines/7", json={
+        "marka": "  TEST  ", "model": "  TEST MODEL  ", "serial": "  SN-TEST  ",
+    })
+    assert response.status_code == 201
+    assert fake_service.calls[-1]["values"] == {
+        "id_klient": 7, "marka": "TEST", "model": "TEST MODEL", "serial": "SN-TEST",
+    }
+
+
+@pytest.mark.parametrize("field", ["model", "serial"])
+@pytest.mark.parametrize("value", [None, "", "new value"])
+def test_update_machine_identity_remains_optional(
+    client: TestClient, fake_service: FakeService, field: str, value: Any,
+) -> None:
+    response = client.patch("/api/v1/machines/4", json={field: value})
+    assert response.status_code == 200
+    assert fake_service.calls[-1]["values"] == {field: value}
 
 
 
