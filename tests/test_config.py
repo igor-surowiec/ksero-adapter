@@ -16,6 +16,17 @@ from adapter.config import (
 
 KS_VARS = [
     "KS_CONFIG",
+    "KS_MACHINES_DB_PATH",
+    "KS_MACHINES_DB_USER",
+    "KS_MACHINES_DB_PASSWORD",
+    "KS_MACHINES_DB_CHARSET",
+    "KS_MACHINES_DB_HOST",
+    "KS_MACHINES_DB_PORT",
+    "KS_MACHINES_FB_CLIENT",
+    "KS_MACHINES_DB_POOL_SIZE",
+    "KS_MACHINES_DB_ACQUIRE_TIMEOUT",
+    "KS_MACHINES_DB_HEALTH_CHECK",
+    "KS_MACHINES_DB_CHECK_PATH",
     "KS_DB_PATH",
     "KS_DB_USER",
     "KS_DB_PASSWORD",
@@ -365,3 +376,87 @@ def test_empty_api_key_disables_authentication(tmp_path: Path) -> None:
     settings = load_config(config)
     assert settings.api.api_key is None
     assert settings.api.cors_origins == ("http://localhost:3000", "https://example.com")
+
+
+@pytest.mark.parametrize("section", ["", "machines_database: null\n"])
+def test_machines_database_is_optional(tmp_path: Path, section: str) -> None:
+    settings = load_config(write_config(tmp_path, MINIMAL + section))
+    assert settings.machines_database is None
+
+
+def test_machines_database_resolves_local_path(tmp_path: Path) -> None:
+    database_file = tmp_path / "machines.fdb"
+    database_file.touch()
+    config = MINIMAL + f"machines_database:\n  path: {database_file}\n"
+    settings = load_config(write_config(tmp_path, config))
+    assert settings.machines_database is not None
+    assert settings.machines_database.path == str(database_file)
+    assert settings.database.path != settings.machines_database.path
+
+
+def test_machines_database_relative_path(tmp_path: Path) -> None:
+    config = MINIMAL + (
+        "machines_database:\n  path: data/machines.fdb\n  check_path: false\n"
+    )
+    settings = load_config(write_config(tmp_path, config))
+    assert settings.machines_database is not None
+    assert settings.machines_database.path == str(
+        (PROJECT_ROOT / "data/machines.fdb").resolve()
+    )
+
+
+def test_machines_database_environment_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    overrides = {
+        "PATH": "remote-machines",
+        "HOST": "firebird.example.com",
+        "PORT": "3051",
+        "USER": "reader",
+        "PASSWORD": "test-password",
+        "CHARSET": "WIN1250",
+        "POOL_SIZE": "2",
+        "ACQUIRE_TIMEOUT": "3.5",
+        "HEALTH_CHECK": "false",
+        "CHECK_PATH": "false",
+    }
+    for key, value in overrides.items():
+        monkeypatch.setenv(f"KS_MACHINES_DB_{key}", value)
+    monkeypatch.setenv("KS_MACHINES_FB_CLIENT", "/fake/libfbclient.so")
+    settings = load_config(
+        write_config(tmp_path, MINIMAL + "machines_database: null\n")
+    )
+    db = settings.machines_database
+    assert db is not None
+    assert db.dsn == "firebird.example.com/3051:remote-machines"
+    assert db.user == "reader"
+    assert db.password == "test-password"
+    assert db.charset == "WIN1250"
+    assert db.pool_size == 2
+    assert db.acquire_timeout == 3.5
+    assert db.health_check is False
+    assert db.check_path is False
+    assert db.client_library == "/fake/libfbclient.so"
+    assert settings.database.user == "SYSDBA"
+    assert settings.database.password == ""
+
+
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ("[]", "must be a mapping"),
+        ("{}", "machines_database.path"),
+        ("{path: '', check_path: false}", "machines_database.path"),
+        ("{path: fake, surprise: true}", "surprise"),
+        ("{path: fake, check_path: false, port: 0}", "machines_database.port"),
+        ("{path: fake, pool_size: 0}", "machines_database.pool_size"),
+        ("{path: fake, acquire_timeout: 0}", "machines_database.acquire_timeout"),
+        ("{path: fake, health_check: maybe}", "machines_database.health_check"),
+        ("{path: no-such-machines.fdb}", "machines_database.path"),
+    ],
+)
+def test_invalid_machines_database(
+    tmp_path: Path, section: str, message: str
+) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_config(write_config(tmp_path, MINIMAL + f"machines_database: {section}"))

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+from ..config import AppSettings
+from ..pool import ConnectionPool
+from .machines_database import MachinesDatabaseService
 from .base import _insert_plan as _insert_plan
 from .clients import (
     ClientsService,
@@ -62,8 +67,36 @@ class DatabaseService(
     CpcSettlementService,
     OrdersService,
     InvoicesService,
+    MachinesDatabaseService,
 ):
-    """Resource operations sharing one connection pool and schema cache."""
+    """Resource operations with isolated primary and machine database state."""
+
+    def __init__(
+        self,
+        settings: AppSettings,
+        pool: ConnectionPool | None = None,
+        machines_pool: ConnectionPool | None = None,
+    ) -> None:
+        super().__init__(settings, pool)
+        self._machines_database_service = None
+        if settings.machines_database is not None:
+            secondary_settings = replace(
+                settings,
+                database=settings.machines_database,
+                machines_database=None,
+                api=replace(settings.api, allow_writes=False),
+            )
+            self._machines_database_service = DatabaseService(
+                secondary_settings, pool=machines_pool
+            )
+
+    def close(self) -> None:
+        """Close both database pools, including on application shutdown."""
+        try:
+            if self._machines_database_service is not None:
+                self._machines_database_service.close()
+        finally:
+            super().close()
 
 
 __all__ = [

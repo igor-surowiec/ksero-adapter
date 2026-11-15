@@ -182,6 +182,8 @@ class BaseDatabaseService:
             f"SELECT {select_sql} FROM {table_sql}{where_sql}{order_sql} "
             f"ROWS {offset + 1} TO {offset + limit}"
         )
+        count_sql = ensure_read_only(count_sql)
+        page_sql = ensure_read_only(page_sql)
 
         with self.pool.session() as connection:
             cursor = connection.cursor()

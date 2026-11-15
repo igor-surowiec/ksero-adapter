@@ -407,15 +407,21 @@ non-finite floats → `null`), `unique_column_names()` (duplicates → `NAME_2`)
 **`service/`** — `DatabaseService` remains the only service injected into routes.
 `__init__.py` composes resource operation classes and re-exports the existing
 constants. The resource classes inherit `BaseDatabaseService`, which appears
-once in the facade's inheritance chain: its initializer creates one pool and
-one schema cache. Resource methods continue using that same state and the same
-transaction helpers. Existing imports from `adapter.service` keep working.
+once in the facade's inheritance chain: its initializer creates the primary
+pool and schema cache. Primary resource methods share that state and the same
+transaction helpers. When `machines_database` is configured, the facade also
+owns a separate `DatabaseService` with its own pool/cache and writes disabled.
+Secondary configuration is cleared in that instance to prevent recursion.
+Connections open lazily; closing the facade closes both pools. Existing imports
+from `adapter.service` keep working.
 
 - `clients.py` — client projections, validation widths, legacy defaults,
   list/create/update/delete methods.
 - `agreements.py` — agreement projections/defaults, creation and update,
   protected ID allocation and atomic replacement of linked machines.
 - `machines.py` — machine projections/defaults and list/create/update methods.
+- `machines_database.py` — explicit `MASZYNY` projection and read-only paging
+  through the secondary service, with independent search and filtering.
 - `cpc_settlement.py` — settlement fields/defaults, filtering, record lookup,
   create/update/delete and period/key validation.
 - `orders.py`, `invoices.py` — their curated columns/search fields and reads.
@@ -467,6 +473,11 @@ modules (`clients.py`, `agreements.py`, `machines.py`, `cpc_settlement.py`,
 names, field constraints, response shapes and OpenAPI schemas are unchanged.
 
 ### Repository files
+
+The optional `AppSettings.machines_database` stores independent
+`DatabaseSettings` for `GET /machines-database/maszyny`. Its separate service
+uses its own pool and schema cache; an omitted configuration returns `503` on
+that endpoint. Health checks and CLI diagnostics still use the primary database.
 
 **`config/config.yaml`** — the single settings file. `server` (host, port, log_level,
 reload), `database` (path, host, port, user, password, charset, client_library,

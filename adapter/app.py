@@ -24,6 +24,7 @@ HTTP access to a Firebird database.
 
 * **Clients** - list, create, update and delete contractors (opt-in writes).
 * **Machines** - list, create, update and delete machines (opt-in writes).
+* **MACHINES_DATABASE** - read MASZYNY from the separate machine database.
 * **Agreements** - create/update service agreements and machine links.
 * **CPC** - list settlements; create/update/delete with opt-in writes.
 * **Orders and invoices** - paginated read-only access.

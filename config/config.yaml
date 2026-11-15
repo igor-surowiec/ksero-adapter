@@ -29,6 +29,22 @@ database:
   # resolved against the project root first, so this also validates them.
   check_path: true
 
+# Read-only MASZYNY endpoint connection, isolated from the primary database.
+# Omit this section or set it to null when the second database is not needed.
+machines_database:
+  path: ${KS_MACHINES_DB_PATH:-BAZA_CPC_FB5.FDB}
+  # Empty host resolves a relative path against the project root.
+  host: ${KS_MACHINES_DB_HOST:-}
+  port: ${KS_MACHINES_DB_PORT:-3050}
+  user: ${KS_MACHINES_DB_USER:-SYSDBA}
+  password: ${KS_MACHINES_DB_PASSWORD:-}
+  charset: ${KS_MACHINES_DB_CHARSET:-WIN1250}
+  client_library: ${KS_MACHINES_FB_CLIENT:-}
+  pool_size: 5
+  acquire_timeout: 10
+  health_check: true
+  check_path: true
+
 api:
   prefix: /api/v1
   default_limit: 50

@@ -165,6 +165,7 @@ class AppSettings:
     server: ServerSettings = field(default_factory=ServerSettings)
     api: ApiSettings = field(default_factory=ApiSettings)
     config_path: Path | None = None
+    machines_database: DatabaseSettings | None = None
 
 
 _ENV_OVERRIDES: dict[str, dict[str, str]] = {
@@ -179,6 +180,19 @@ _ENV_OVERRIDES: dict[str, dict[str, str]] = {
         "pool_size": "KS_DB_POOL_SIZE",
         "health_check": "KS_DB_HEALTH_CHECK",
         "check_path": "KS_DB_CHECK_PATH",
+    },
+    "machines_database": {
+        "path": "KS_MACHINES_DB_PATH",
+        "user": "KS_MACHINES_DB_USER",
+        "password": "KS_MACHINES_DB_PASSWORD",
+        "charset": "KS_MACHINES_DB_CHARSET",
+        "host": "KS_MACHINES_DB_HOST",
+        "port": "KS_MACHINES_DB_PORT",
+        "client_library": "KS_MACHINES_FB_CLIENT",
+        "pool_size": "KS_MACHINES_DB_POOL_SIZE",
+        "acquire_timeout": "KS_MACHINES_DB_ACQUIRE_TIMEOUT",
+        "health_check": "KS_MACHINES_DB_HEALTH_CHECK",
+        "check_path": "KS_MACHINES_DB_CHECK_PATH",
     },
     "server": {
         "host": "KS_SERVER_HOST",
@@ -201,6 +215,7 @@ _ALLOWED_KEYS = {
     name: {item.name for item in fields(model)}
     for name, model in (
         ("database", DatabaseSettings),
+        ("machines_database", DatabaseSettings),
         ("server", ServerSettings),
         ("api", ApiSettings),
     )
@@ -268,36 +283,26 @@ def _apply_env_overrides(data: dict[str, Any]) -> None:
             env_value = os.environ.get(env_name)
             if env_value is None or env_value == "":
                 continue
-            section = data.setdefault(section_name, {})
+            if data.get(section_name) is None:
+                data[section_name] = {}
+            section = data[section_name]
             if not isinstance(section, dict):
                 raise ConfigError(f"'{section_name}' must be a mapping")
             section[key] = env_value
 
 
 def _build_settings(data: Mapping[str, Any], config_path: Path) -> AppSettings:
-    _check_keys(data, {"database", "server", "api"}, "the configuration root")
-    database_section = _section(data, "database")
+    _check_keys(data, set(_ALLOWED_KEYS), "the configuration root")
     server_section = _section(data, "server")
     api_section = _section(data, "api")
-    _check_keys(database_section, _ALLOWED_KEYS["database"], "'database' section")
     _check_keys(server_section, _ALLOWED_KEYS["server"], "'server' section")
     _check_keys(api_section, _ALLOWED_KEYS["api"], "'api' section")
 
-    database_host = _optional_str(database_section, "database.host")
-    database = DatabaseSettings(
-        path=resolve_database_path(
-            _str(database_section, "database.path"), database_host
-        ),
-        user=_str(database_section, "database.user", "SYSDBA"),
-        password=_str(database_section, "database.password", ""),
-        charset=_str(database_section, "database.charset", "UTF8"),
-        host=database_host,
-        port=_int(database_section, "database.port", 3050),
-        client_library=_optional_str(database_section, "database.client_library"),
-        pool_size=_int(database_section, "database.pool_size", 5),
-        acquire_timeout=_float(database_section, "database.acquire_timeout", 10.0),
-        health_check=_bool(database_section, "database.health_check", True),
-        check_path=_bool(database_section, "database.check_path", True),
+    database = _database_settings(data, "database")
+    machines_database = (
+        _database_settings(data, "machines_database")
+        if data.get("machines_database") is not None
+        else None
     )
     server = ServerSettings(
         host=_str(server_section, "server.host", "127.0.0.1"),
@@ -318,8 +323,36 @@ def _build_settings(data: Mapping[str, Any], config_path: Path) -> AppSettings:
         cors_origins=_str_tuple(api_section, "api.cors_origins"),
     )
     return AppSettings(
-        database=database, server=server, api=api, config_path=config_path
+        database=database,
+        server=server,
+        api=api,
+        config_path=config_path,
+        machines_database=machines_database,
     )
+
+
+def _database_settings(data: Mapping[str, Any], name: str) -> DatabaseSettings:
+    """Parse either database with the same whitelist and validation rules."""
+    section = _section(data, name)
+    _check_keys(section, _ALLOWED_KEYS[name], f"'{name}' section")
+    host = _optional_str(section, f"{name}.host")
+    try:
+        return DatabaseSettings(
+            path=resolve_database_path(_str(section, f"{name}.path"), host),
+            user=_str(section, f"{name}.user", "SYSDBA"),
+            password=_str(section, f"{name}.password", ""),
+            charset=_str(section, f"{name}.charset", "UTF8"),
+            host=host,
+            port=_int(section, f"{name}.port", 3050),
+            client_library=_optional_str(section, f"{name}.client_library"),
+            pool_size=_int(section, f"{name}.pool_size", 5),
+            acquire_timeout=_float(section, f"{name}.acquire_timeout", 10.0),
+            health_check=_bool(section, f"{name}.health_check", True),
+            check_path=_bool(section, f"{name}.check_path", True),
+        )
+    except ConfigError as exc:
+        # DatabaseSettings is shared, but errors must identify the right section.
+        raise ConfigError(str(exc).replace("'database.", f"'{name}.")) from exc
 
 
 def _section(data: Mapping[str, Any], name: str) -> dict[str, Any]:

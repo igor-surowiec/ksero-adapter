@@ -12,6 +12,7 @@ from .routes import (
     cpc_settlement,
     invoices,
     machines,
+    machines_database,
     meta,
     orders,
 )
@@ -33,6 +34,6 @@ def create_router(settings: AppSettings) -> APIRouter:
     router.include_router(meta.create_router(settings))
     protected = [Depends(require_api_key(settings))]
     for resource in (clients, agreements, machines,
-                     cpc_settlement, orders, invoices):
+                     cpc_settlement, orders, invoices, machines_database):
         router.include_router(resource.create_router(settings), dependencies=protected)
     return router

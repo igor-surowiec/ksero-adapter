@@ -233,6 +233,23 @@ class FakeService:
             ],
         }
 
+    def fetch_database_machines(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        search: str | None = None,
+        filters: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append({
+            "action": "fetch_database_machines", "limit": limit,
+            "offset": offset, "search": search, "filters": filters,
+        })
+        return {
+            "total": 1, "count": 1, "limit": limit or 50, "offset": offset,
+            "machines": [{"id_tbl_maszyny": 1, "marka": "TEST DEVICE"}],
+        }
+
     def fetch_orders(
         self,
         *,

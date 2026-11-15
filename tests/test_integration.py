@@ -79,6 +79,48 @@ def test_health_reports_firebird_version(service: DatabaseService) -> None:
     assert "FIREBIRD" in payload["database"]["server_version"].upper()
 
 
+@pytest.mark.skipif(
+    not os.environ.get("KS_TEST_MACHINES_DB_PATH"),
+    reason="set KS_TEST_MACHINES_DB_PATH to test the secondary database",
+)
+def test_secondary_machines_database_endpoint() -> None:
+    secondary = DatabaseSettings(
+        path=resolve_database_path(os.environ["KS_TEST_MACHINES_DB_PATH"]),
+        user=os.environ.get("KS_TEST_DB_USER", "SYSDBA"),
+        password=os.environ.get("KS_TEST_DB_PASSWORD", "masterkey"),
+        charset=os.environ.get("KS_TEST_DB_CHARSET", "WIN1250"),
+        client_library=os.environ.get("KS_TEST_DB_CLIENT") or None,
+    )
+    settings = AppSettings(
+        # This path must never be opened by a request to the secondary endpoint.
+        database=DatabaseSettings(path="unused-primary.fdb", check_path=False),
+        machines_database=secondary,
+        api=ApiSettings(api_key="integration-key"),
+    )
+    instance = DatabaseService(settings)
+    try:
+        with TestClient(create_app(settings, service=instance)) as client:
+            response = client.get(
+                "/api/v1/machines-database/maszyny",
+                headers={"X-API-Key": "integration-key"},
+                params={"limit": 1},
+            )
+            assert response.status_code == 200
+            page = response.json()
+            assert page["count"] == len(page["machines"]) <= 1
+            assert page["total"] >= page["count"]
+            assert instance.pool.stats["created"] == 0
+            database = instance._machines_database_service
+            assert database is not None
+            assert database.pool.stats["created"] == 1
+            assert database.settings.api.allow_writes is False
+            if page["machines"]:
+                assert "id_tbl_maszyny" in page["machines"][0]
+                assert "licznik_mono" in page["machines"][0]
+    finally:
+        instance.close()
+
+
 def test_schema_lists_user_tables(service: DatabaseService) -> None:
     tables = service.list_tables()
     assert all(table["kind"] in {"table", "view"} for table in tables)

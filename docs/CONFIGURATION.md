@@ -9,6 +9,10 @@ without touching the file:
 | `KS_CONFIG` | path to the YAML file (default `config/config.yaml`) |
 | `KS_DB_PATH`, `KS_DB_USER`, `KS_DB_PASSWORD`, `KS_DB_CHARSET` | database and credentials |
 | `KS_DB_HOST`, `KS_DB_PORT`, `KS_FB_CLIENT` | remote server, native library |
+| `KS_MACHINES_DB_PATH`, `KS_MACHINES_DB_USER`, `KS_MACHINES_DB_PASSWORD`, `KS_MACHINES_DB_CHARSET` | second database path and credentials |
+| `KS_MACHINES_DB_HOST`, `KS_MACHINES_DB_PORT`, `KS_MACHINES_FB_CLIENT` | second database server and native client library |
+| `KS_MACHINES_DB_POOL_SIZE`, `KS_MACHINES_DB_ACQUIRE_TIMEOUT` | second database pool settings |
+| `KS_MACHINES_DB_HEALTH_CHECK`, `KS_MACHINES_DB_CHECK_PATH` | second database validation settings |
 | `KS_SERVER_HOST`, `KS_SERVER_PORT`, `KS_LOG_LEVEL` | server |
 | `KS_API_KEY` | require `X-API-Key` on resource requests |
 | `KS_ALLOW_WRITES` | enable the write endpoints (`POST /clients`, `POST /cpc-agreements/{id_klient}`, `PATCH /clients/{id_klient}`, `DELETE /clients/{id_klient}`, `POST /machines/{id_klient}`, `PATCH /machines/{id_maszyna}`, `DELETE /machines/{id_maszyna}`, `PATCH /cpc-agreements/{id_umowacpc}`, `DELETE /cpc-agreements/{id_umowacpc}`, `POST/PATCH/DELETE /cpc-settlement`) |
@@ -91,3 +95,25 @@ For embedded local access, the process also needs access to Firebird's runtime
 directory (typically ``/tmp/firebird``) and read/write access to the database
 file. After adding a user to the ``firebird`` group, log out and back in, and
 restart the adapter so it inherits the updated groups.
+
+## Machine-data database
+
+The optional `machines_database` section accepts the same settings and validation
+rules as `database`, with independent credentials and no inherited settings.
+The supplied configuration points to `BAZA_CPC_FB5.FDB` in the project root
+and uses `WIN1250`. Set `KS_MACHINES_DB_PASSWORD` to supply its password.
+
+With an empty host, relative paths resolve against the project root. To connect
+to a server later, set `KS_MACHINES_DB_HOST` and use a path or alias visible to
+that server in `KS_MACHINES_DB_PATH`.
+
+`GET /machines-database/maszyny` uses this connection, with its own pool and
+schema cache. Connections open lazily on request and both pools close on
+application shutdown. This database is read-only even when primary writes are
+enabled. Existing routes, `/health`, and CLI `--check` continue using the
+primary `database`.
+
+Local file existence is validated when `check_path` is true. Omit the section
+or use `machines_database: null` when it is not needed; the secondary endpoint
+then returns `503`. Environment overrides can configure it even when the
+section is omitted or null; a path is required whenever it is configured.

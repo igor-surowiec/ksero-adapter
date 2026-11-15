@@ -28,6 +28,7 @@ write-enable setting. Custom API prefixes work the same way. The existing `GET
 | `PATCH` | `/cpc-agreements/{id_umowacpc}` | update agreement details and optionally link machines |
 | `DELETE` | `/cpc-agreements/{id_umowacpc}` | delete an unreferenced agreement (`204`) |
 | `GET` | `/machines` | machines and devices (`MASZYNA`) |
+| `GET` | `/machines-database/maszyny` | machine records (`MASZYNY`) from the separate `machines_database` |
 | `POST` | `/machines/{id_klient}` | create a machine; client ID from the URL and nonblank `marka` required |
 | `PATCH` | `/machines/{id_maszyna}` | update supplied machine fields by business identifier |
 | `DELETE` | `/machines/{id_maszyna}` | delete a machine and trigger-managed service orders (`204`) |
@@ -56,6 +57,28 @@ Insert and update routes return the stored row (`201` and `200` respectively);
 deletion returns `204` with no body. All write routes use the same `X-API-Key`
 as the read routes and answer `403` unless `api.allow_writes` /
 `KS_ALLOW_WRITES=true` is set.
+
+## Machine-data database
+
+`GET /machines-database/maszyny` reads `MASZYNY` from the configured
+`machines_database`, independently of `/machines` and its primary `MASZYNA`
+table. The tester groups it under **MACHINES_DATABASE**. It requires the same
+API key as other resource routes and supports `limit`, `offset`, `search`, and
+the JSON `filters` syntax below. Without the second database configured, or
+when it cannot be reached, it returns `503`.
+
+The response is `{total, count, limit, offset, machines}` with lower-cased
+Polish column names. Its explicit projection covers the current machine
+schema, including identifiers, manufacturer/model/serial, counters, network
+details, maintenance, consumables, inventory and notes. Dates use ISO strings.
+Results are ordered by the surrogate key `ID_TBL_MASZYNY` for stable paging.
+Search matches serial, MAC, manufacturer, model, device type, location, IP,
+group, inventory number and technician; filters can use any catalog column.
+There are no write routes for this database.
+
+```bash
+curl 'http://127.0.0.1:8000/api/v1/machines-database/maszyny?limit=10'
+```
 
 ## Clients
 
