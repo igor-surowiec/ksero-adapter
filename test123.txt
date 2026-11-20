@@ -1,0 +1,1 @@
+Test 123 – sprawdzenie zapisu i tworzenia pull requesta przez wtyczkę GitHub w ChatGPT Work.
